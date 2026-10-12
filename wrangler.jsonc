@@ -31,14 +31,19 @@
     "ENABLE_BANKING_API_BASE": "https://api.enablebanking.com"
   }
 
-  // Required secrets (set via `wrangler secret put` or Cloudflare dashboard):
+  // Required secret (set via `wrangler secret put` or Cloudflare dashboard):
   //
-  // ENABLE_BANKING_APP_ID
-  //   Your Enable Banking application ID from the control panel
-  //
-  // ENABLE_BANKING_PRIVATE_KEY
-  //   Your RSA private key (PEM format) for JWT signing
-  //
-  // AUTH_SECRET
+  // AUTH_SECRET (required)
   //   Password for web UI login, OAuth consent, and bearer token authentication
+  //
+  // Optional secrets (can also be configured via the setup wizard after deploy):
+  //
+  // ENABLE_BANKING_APP_ID (optional)
+  //   Your Enable Banking application ID from the control panel
+  //   If not set here, can be configured via the web UI setup wizard
+  //
+  // ENABLE_BANKING_PRIVATE_KEY (optional)
+  //   Your RSA private key (PEM format) for JWT signing
+  //   If not set here, can be configured via the web UI setup wizard
+  //   When set via environment, takes precedence over wizard-configured credentials
 }

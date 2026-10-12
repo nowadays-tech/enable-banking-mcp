@@ -20,8 +20,69 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
   return bytes.buffer;
 }
 
+function isPKCS1Format(pem: string): boolean {
+  return pem.includes("-----BEGIN RSA PRIVATE KEY-----");
+}
+
+function wrapPKCS1InPKCS8(pkcs1: Uint8Array): Uint8Array {
+  const rsaOID = new Uint8Array([
+    0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01,
+    0x01, 0x05, 0x00,
+  ]);
+
+  const octetStringTag = 0x04;
+  const sequenceTag = 0x30;
+
+  function encodeLength(length: number): Uint8Array {
+    if (length < 128) {
+      return new Uint8Array([length]);
+    } else if (length < 256) {
+      return new Uint8Array([0x81, length]);
+    } else if (length < 65536) {
+      return new Uint8Array([0x82, (length >> 8) & 0xff, length & 0xff]);
+    } else {
+      return new Uint8Array([
+        0x83,
+        (length >> 16) & 0xff,
+        (length >> 8) & 0xff,
+        length & 0xff,
+      ]);
+    }
+  }
+
+  const octetStringLength = encodeLength(pkcs1.length);
+  const octetString = new Uint8Array(1 + octetStringLength.length + pkcs1.length);
+  octetString[0] = octetStringTag;
+  octetString.set(octetStringLength, 1);
+  octetString.set(pkcs1, 1 + octetStringLength.length);
+
+  const version = new Uint8Array([0x02, 0x01, 0x00]);
+
+  const innerLength = version.length + rsaOID.length + octetString.length;
+  const innerLengthEncoded = encodeLength(innerLength);
+
+  const result = new Uint8Array(1 + innerLengthEncoded.length + innerLength);
+  result[0] = sequenceTag;
+  result.set(innerLengthEncoded, 1);
+  let offset = 1 + innerLengthEncoded.length;
+  result.set(version, offset);
+  offset += version.length;
+  result.set(rsaOID, offset);
+  offset += rsaOID.length;
+  result.set(octetString, offset);
+
+  return result;
+}
+
 async function importPrivateKey(pem: string): Promise<CryptoKey> {
-  const keyData = pemToArrayBuffer(pem);
+  let keyData: Uint8Array;
+
+  if (isPKCS1Format(pem)) {
+    const pkcs1Data = pemToArrayBuffer(pem);
+    keyData = wrapPKCS1InPKCS8(new Uint8Array(pkcs1Data));
+  } else {
+    keyData = new Uint8Array(pemToArrayBuffer(pem));
+  }
 
   return await crypto.subtle.importKey(
     "pkcs8",

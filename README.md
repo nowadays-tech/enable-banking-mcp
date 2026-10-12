@@ -9,27 +9,63 @@ A personal remote MCP (Model Context Protocol) server that connects your bank ac
 - **5 MCP Tools**: `list_accounts`, `get_balances`, `get_transactions`, `search_transactions`, `summarize_spending`
 - **32 European Countries**: Supports banks across the EU/EEA via Enable Banking
 - **OAuth + Bearer Token Auth**: OAuth for Claude.ai/ChatGPT, Bearer token for Cursor/CLI tools
-- **Beautiful Setup UI**: Connect your bank through a friendly web interface
+- **Guided Setup Wizard**: Step-by-step instructions right in the web UI
 - **One-Click Deploy**: Deploy to your own Cloudflare account in minutes
 - **Privacy-First**: Your data stays in your Cloudflare account, no third-party storage
 
 ## Quick Start
 
-### 1. Create an Enable Banking Account
+### 1. Deploy to Cloudflare
 
-1. Go to [Enable Banking Control Panel](https://enablebanking.com/cp/)
-2. Create a free account (restricted production allows connecting your own accounts)
-3. Create a new application:
-   - Name: `My Banking MCP` (or any name)
-   - Type: `Personal` (for your own accounts)
-   - Redirect URL: `https://YOUR-WORKER-NAME.YOUR-SUBDOMAIN.workers.dev/callback`
-     (You'll update this after deploying)
-4. Generate or upload an RSA private key (2048-bit or 4096-bit)
-5. Note your **Application ID** and download your **private key**
+Click the **Deploy to Cloudflare Workers** button above. You only need to set one secret:
 
-### 2. Deploy to Cloudflare
+- **AUTH_SECRET**: A strong password for authentication (used for web UI login, OAuth consent, and API bearer token)
 
-Click the deploy button above, or deploy manually:
+That's it! The Enable Banking credentials are configured through the setup wizard after deployment.
+
+### 2. Complete the Setup Wizard
+
+After deployment, visit your worker URL (e.g., `https://enable-banking-mcp.YOUR-SUBDOMAIN.workers.dev/`):
+
+1. **Log in** with your AUTH_SECRET password
+2. **Step A**: Copy your redirect URL and create an Enable Banking app
+   - Go to [Enable Banking Control Panel](https://enablebanking.com/cp/) (link opens in new tab)
+   - Create a free account if needed
+   - Create a new application with your redirect URL
+   - Choose **Sandbox** (test data) or **Production** (real accounts)
+   - The `.pem` private key downloads automatically when you generate it
+3. **Step B**: Enter your App ID and upload the `.pem` file
+   - The wizard validates your credentials against the Enable Banking API
+4. **Step C**: Select your country and connect your bank
+5. **Step D**: Copy your MCP server URLs for Claude.ai, ChatGPT, or Cursor
+
+### 3. Add to Your AI Assistant
+
+The setup wizard (Step D) shows ready-to-copy configurations for each client:
+
+#### Claude.ai / ChatGPT (OAuth)
+```
+https://YOUR-WORKER.workers.dev/mcp
+```
+OAuth handles authentication automatically.
+
+#### Cursor / Claude Code (Bearer Token)
+```json
+{
+  "mcpServers": {
+    "banking": {
+      "url": "https://YOUR-WORKER.workers.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_AUTH_SECRET"
+      }
+    }
+  }
+}
+```
+
+## Manual Deployment
+
+For more control, deploy manually:
 
 ```bash
 # Clone this repository
@@ -44,13 +80,7 @@ npx wrangler kv namespace create BANKING_KV
 npx wrangler kv namespace create OAUTH_KV
 # Copy the IDs from the output and update wrangler.jsonc
 
-# Set secrets
-npx wrangler secret put ENABLE_BANKING_APP_ID
-# Enter your Enable Banking application ID
-
-npx wrangler secret put ENABLE_BANKING_PRIVATE_KEY
-# Paste your RSA private key (including BEGIN/END lines)
-
+# Set the required secret
 npx wrangler secret put AUTH_SECRET
 # Enter a strong password for authentication
 
@@ -58,56 +88,18 @@ npx wrangler secret put AUTH_SECRET
 npm run deploy
 ```
 
-### 3. Update Enable Banking Redirect URL
+Then visit your worker URL to complete the setup wizard.
 
-After deploying, update your Enable Banking application's redirect URL to:
+### Optional: Set Enable Banking Credentials via Environment
+
+Instead of using the setup wizard, you can set Enable Banking credentials as environment secrets. This is useful for CI/CD or if you prefer not to store encrypted credentials in KV:
+
+```bash
+npx wrangler secret put ENABLE_BANKING_APP_ID
+npx wrangler secret put ENABLE_BANKING_PRIVATE_KEY
 ```
-https://YOUR-WORKER-NAME.YOUR-SUBDOMAIN.workers.dev/callback
-```
 
-### 4. Connect Your Bank
-
-1. Visit `https://YOUR-WORKER-NAME.YOUR-SUBDOMAIN.workers.dev/`
-2. Log in with your `AUTH_SECRET` password
-3. Select your country and bank
-4. Complete the bank's authentication flow
-5. Your accounts are now connected!
-
-### 5. Add to Your AI Assistant
-
-#### Claude.ai (via OAuth)
-
-1. Go to Claude Settings → Integrations → Add Custom MCP Server
-2. Enter the server URL: `https://YOUR-WORKER.workers.dev/mcp`
-3. Claude will handle OAuth automatically - you'll be prompted to authorize
-4. Enter your `AUTH_SECRET` password when asked to consent
-
-#### ChatGPT (via OAuth)
-
-1. Create or edit a Custom GPT
-2. Add an Action:
-   - Import OpenAPI spec from: `https://YOUR-WORKER/.well-known/mcp`
-   - Authentication: OAuth 2.0
-   - Authorization URL: `https://YOUR-WORKER/authorize`
-   - Token URL: `https://YOUR-WORKER/token`
-   - Client Registration: `https://YOUR-WORKER/register` (for dynamic registration)
-
-#### Cursor / Claude Code (via Bearer Token)
-
-Add to your MCP settings (Settings → Features → MCP Servers):
-
-```json
-{
-  "mcpServers": {
-    "banking": {
-      "url": "https://YOUR-WORKER.workers.dev/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_AUTH_SECRET"
-      }
-    }
-  }
-}
-```
+When set via environment, these take precedence over wizard-configured credentials.
 
 ## MCP Tools
 
@@ -142,18 +134,28 @@ Summarizes spending by category for a month.
 
 ### Environment Variables (Secrets)
 
-| Secret | Description |
-|--------|-------------|
-| `ENABLE_BANKING_APP_ID` | Your Enable Banking application ID |
-| `ENABLE_BANKING_PRIVATE_KEY` | RSA private key (PEM format) for JWT signing |
-| `AUTH_SECRET` | Password for OAuth consent, web UI, and bearer token auth |
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `AUTH_SECRET` | **Yes** | Password for web UI login, OAuth consent, and bearer token auth |
+| `ENABLE_BANKING_APP_ID` | No | Your Enable Banking application ID (can be set via setup wizard) |
+| `ENABLE_BANKING_PRIVATE_KEY` | No | RSA private key PEM (can be set via setup wizard) |
+
+When Enable Banking credentials are set via environment variables, they take precedence over credentials configured through the setup wizard.
 
 ### KV Namespaces
 
 | Binding | Description |
 |---------|-------------|
-| `BANKING_KV` | Stores bank sessions and consent data |
+| `BANKING_KV` | Stores bank sessions, consent data, and encrypted Enable Banking credentials |
 | `OAUTH_KV` | Stores OAuth tokens and client registrations |
+
+### Credential Storage Security
+
+When configured via the setup wizard, your Enable Banking private key is:
+- Encrypted with AES-256-GCM before storage
+- Key derived from your AUTH_SECRET using HKDF
+- Never rendered back in the UI
+- Stored only in your Cloudflare KV namespace
 
 ## Authentication
 

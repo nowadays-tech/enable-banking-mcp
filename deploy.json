@@ -5,17 +5,8 @@
   "icon": "🏦",
   "secrets": [
     {
-      "name": "ENABLE_BANKING_APP_ID",
-      "description": "Your Enable Banking application ID from the control panel"
-    },
-    {
-      "name": "ENABLE_BANKING_PRIVATE_KEY",
-      "description": "Your RSA private key (PEM format) for JWT signing",
-      "secret": true
-    },
-    {
       "name": "AUTH_SECRET",
-      "description": "Password for web UI login, OAuth consent, and bearer token authentication",
+      "description": "Password for web UI login, OAuth consent, and bearer token authentication. Choose a strong, unique password.",
       "secret": true
     }
   ],
@@ -23,7 +14,7 @@
     {
       "type": "kv_namespace",
       "name": "BANKING_KV",
-      "description": "Storage for bank sessions and consent data"
+      "description": "Storage for bank sessions, consent data, and Enable Banking credentials"
     },
     {
       "type": "kv_namespace",

@@ -1,10 +1,19 @@
 export interface Env {
   BANKING_KV: KVNamespace;
   OAUTH_KV: KVNamespace;
-  ENABLE_BANKING_APP_ID: string;
-  ENABLE_BANKING_PRIVATE_KEY: string;
+  ENABLE_BANKING_APP_ID?: string;
+  ENABLE_BANKING_PRIVATE_KEY?: string;
   ENABLE_BANKING_API_BASE: string;
   AUTH_SECRET: string;
+}
+
+export interface StoredCredentials {
+  appId: string;
+  encryptedPrivateKey: string;
+  iv: string;
+  salt: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface BankSession {

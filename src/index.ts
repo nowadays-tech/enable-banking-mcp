@@ -13,6 +13,17 @@ import {
   deletePendingAuth,
 } from "./enable-banking/client";
 import {
+  storeCredentials,
+  getEffectiveCredentials,
+  hasStoredCredentials,
+  getStoredCredentialsMetadata,
+  deleteStoredCredentials,
+  hasEnvCredentials,
+  validatePEM,
+  normalizePEM,
+} from "./enable-banking/credentials";
+import { signJWT, createJWTPayload } from "./enable-banking/jwt";
+import {
   renderSetupPage,
   renderConnectedPage,
   renderCallbackSuccessPage,
@@ -20,6 +31,8 @@ import {
   renderLoginPage,
   renderDisconnectedPage,
   renderConsentPage,
+  renderWizardPage,
+  type WizardState,
 } from "./ui/pages";
 
 const COUNTRIES = [
@@ -28,6 +41,24 @@ const COUNTRIES = [
   "MT", "NL", "NO", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
   "GB", "CH",
 ];
+
+async function buildWizardState(env: Env): Promise<WizardState> {
+  const credentialsFromEnv = hasEnvCredentials(env);
+  const storedCredentialsMeta = await getStoredCredentialsMetadata(env.BANKING_KV);
+  const hasCredentials = credentialsFromEnv || storedCredentialsMeta !== null;
+  
+  const session = await getStoredSession(env.BANKING_KV);
+  
+  return {
+    hasCredentials,
+    credentialsFromEnv,
+    appId: credentialsFromEnv ? env.ENABLE_BANKING_APP_ID : storedCredentialsMeta?.appId,
+    hasBankSession: session !== null,
+    bankName: session?.aspspName,
+    accountCount: session?.accounts.length,
+    consentExpiry: session?.consentValidUntil,
+  };
+}
 
 function getBaseUrl(request: Request): string {
   const url = new URL(request.url);
@@ -244,6 +275,7 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
   private async handleSetupRoutes(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
+    const baseUrl = getBaseUrl(request);
 
     if (path === "/login") {
       if (request.method === "GET") {
@@ -274,14 +306,152 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
 
     if (path === "/" || path === "/setup") {
       if (!isAuthenticated) {
-        return Response.redirect(`${getBaseUrl(request)}/login`, 302);
+        return Response.redirect(`${baseUrl}/login`, 302);
       }
 
-      const session = await getStoredSession(this.env.BANKING_KV);
-      if (session) {
-        return htmlResponse(renderConnectedPage(session, getBaseUrl(request)));
+      const wizardState = await buildWizardState(this.env);
+      return htmlResponse(renderWizardPage(baseUrl, wizardState, COUNTRIES));
+    }
+
+    if (path === "/bank/connect") {
+      if (!isAuthenticated) {
+        return Response.redirect(`${baseUrl}/login`, 302);
       }
       return htmlResponse(renderSetupPage(COUNTRIES));
+    }
+
+    if (path === "/api/credentials/validate") {
+      if (!isAuthenticated) {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+
+      if (request.method !== "POST") {
+        return jsonResponse({ error: "Method not allowed" }, 405);
+      }
+
+      try {
+        const body = await request.json() as { privateKey?: string; appId?: string };
+        const { privateKey, appId } = body;
+
+        if (!privateKey) {
+          return jsonResponse({ valid: false, error: "Private key is required" });
+        }
+
+        const pemValidation = await validatePEM(privateKey);
+        if (!pemValidation.valid) {
+          return jsonResponse({ valid: false, error: pemValidation.error });
+        }
+
+        if (appId) {
+          try {
+            const normalizedPem = await normalizePEM(privateKey);
+            const payload = createJWTPayload(appId);
+            const token = await signJWT(payload, normalizedPem);
+            
+            const apiBase = this.env.ENABLE_BANKING_API_BASE || "https://api.enablebanking.com";
+            const response = await fetch(`${apiBase}/application`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+
+            if (response.ok) {
+              return jsonResponse({ valid: true, apiTest: true });
+            } else {
+              const errorText = await response.text();
+              return jsonResponse({ 
+                valid: true, 
+                apiTest: false, 
+                apiError: `API returned ${response.status}: ${errorText}` 
+              });
+            }
+          } catch (apiError) {
+            return jsonResponse({ 
+              valid: true, 
+              apiTest: false, 
+              apiError: apiError instanceof Error ? apiError.message : "API test failed" 
+            });
+          }
+        }
+
+        return jsonResponse({ valid: true });
+      } catch (error) {
+        return jsonResponse({ 
+          valid: false, 
+          error: error instanceof Error ? error.message : "Validation failed" 
+        });
+      }
+    }
+
+    if (path === "/api/credentials") {
+      if (!isAuthenticated) {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+
+      if (request.method !== "POST") {
+        return jsonResponse({ error: "Method not allowed" }, 405);
+      }
+
+      const contentType = request.headers.get("Content-Type") || "";
+      let action: string | undefined;
+      let appId: string | undefined;
+      let privateKey: string | undefined;
+
+      if (contentType.includes("multipart/form-data") || contentType.includes("application/x-www-form-urlencoded")) {
+        const formData = await request.formData();
+        action = formData.get("action")?.toString();
+        appId = formData.get("appId")?.toString();
+        privateKey = formData.get("privateKey")?.toString();
+      } else {
+        const body = await request.json() as { action?: string; appId?: string; privateKey?: string };
+        action = body.action;
+        appId = body.appId;
+        privateKey = body.privateKey;
+      }
+
+      if (action === "delete") {
+        if (hasEnvCredentials(this.env)) {
+          const wizardState = await buildWizardState(this.env);
+          return htmlResponse(
+            renderWizardPage(baseUrl, wizardState, COUNTRIES, "Cannot delete credentials set via environment variables")
+          );
+        }
+        await deleteStoredCredentials(this.env.BANKING_KV);
+        const wizardState = await buildWizardState(this.env);
+        return htmlResponse(
+          renderWizardPage(baseUrl, wizardState, COUNTRIES, undefined, "Credentials removed successfully")
+        );
+      }
+
+      if (action === "save") {
+        if (!appId || !privateKey) {
+          const wizardState = await buildWizardState(this.env);
+          return htmlResponse(
+            renderWizardPage(baseUrl, wizardState, COUNTRIES, "App ID and private key are required")
+          );
+        }
+
+        const pemValidation = await validatePEM(privateKey);
+        if (!pemValidation.valid) {
+          const wizardState = await buildWizardState(this.env);
+          return htmlResponse(
+            renderWizardPage(baseUrl, wizardState, COUNTRIES, `Invalid private key: ${pemValidation.error}`)
+          );
+        }
+
+        try {
+          await storeCredentials(this.env.BANKING_KV, appId, privateKey, this.env.AUTH_SECRET);
+          const wizardState = await buildWizardState(this.env);
+          return htmlResponse(
+            renderWizardPage(baseUrl, wizardState, COUNTRIES, undefined, "Credentials saved successfully!")
+          );
+        } catch (error) {
+          const wizardState = await buildWizardState(this.env);
+          return htmlResponse(
+            renderWizardPage(baseUrl, wizardState, COUNTRIES, `Failed to save credentials: ${error instanceof Error ? error.message : "Unknown error"}`)
+          );
+        }
+      }
+
+      return jsonResponse({ error: "Invalid action" }, 400);
     }
 
     if (path === "/api/banks") {
@@ -295,18 +465,18 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
       }
 
       try {
-        const client = new EnableBankingClient(this.env);
+        const client = await EnableBankingClient.create(this.env);
         const banks = await client.getASPSPs(country);
         return jsonResponse(banks);
       } catch (error) {
         console.error("Failed to fetch banks:", error);
-        return jsonResponse({ error: "Failed to fetch banks" }, 500);
+        return jsonResponse({ error: error instanceof Error ? error.message : "Failed to fetch banks" }, 500);
       }
     }
 
     if (path === "/auth/start") {
       if (!isAuthenticated) {
-        return Response.redirect(`${getBaseUrl(request)}/login`, 302);
+        return Response.redirect(`${baseUrl}/login`, 302);
       }
 
       if (request.method === "GET") {
@@ -326,10 +496,10 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
         }
 
         const state = crypto.randomUUID();
-        const redirectUrl = `${getBaseUrl(request)}/callback`;
+        const redirectUrl = `${baseUrl}/callback`;
 
         try {
-          const client = new EnableBankingClient(this.env);
+          const client = await EnableBankingClient.create(this.env);
           const auth = await client.startAuthorization(
             aspspId,
             redirectUrl,
@@ -380,7 +550,7 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
       }
 
       try {
-        const client = new EnableBankingClient(this.env);
+        const client = await EnableBankingClient.create(this.env);
         const sessionResponse = await client.createSession(code);
 
         const session: BankSession = {
@@ -417,24 +587,27 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
 
     if (path === "/disconnect" && request.method === "POST") {
       if (!isAuthenticated) {
-        return Response.redirect(`${getBaseUrl(request)}/login`, 302);
+        return Response.redirect(`${baseUrl}/login`, 302);
       }
 
       const session = await getStoredSession(this.env.BANKING_KV);
       if (session) {
         try {
-          const client = new EnableBankingClient(this.env);
+          const client = await EnableBankingClient.create(this.env);
           await client.deleteSession(session.sessionId);
         } catch (error) {
           console.error("Failed to delete session at Enable Banking:", error);
         }
         await deleteStoredSession(this.env.BANKING_KV);
       }
-      return htmlResponse(renderDisconnectedPage());
+      
+      const wizardState = await buildWizardState(this.env);
+      return htmlResponse(
+        renderWizardPage(baseUrl, wizardState, COUNTRIES, undefined, "Bank disconnected successfully")
+      );
     }
 
     if (path === "/.well-known/mcp") {
-      const baseUrl = getBaseUrl(request);
       return jsonResponse({
         name: "enable-banking-mcp",
         version: "1.0.0",

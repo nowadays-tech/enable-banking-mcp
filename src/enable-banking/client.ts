@@ -1,4 +1,5 @@
 import { signJWT, createJWTPayload } from "./jwt";
+import { getEffectiveCredentials } from "./credentials";
 import type {
   Env,
   ASPSPsResponse,
@@ -12,15 +13,41 @@ import type {
 export class EnableBankingClient {
   private env: Env;
   private baseUrl: string;
+  private credentials: { appId: string; privateKey: string } | null = null;
 
-  constructor(env: Env) {
+  constructor(env: Env, credentials?: { appId: string; privateKey: string } | null) {
     this.env = env;
     this.baseUrl = env.ENABLE_BANKING_API_BASE || "https://api.enablebanking.com";
+    if (credentials) {
+      this.credentials = credentials;
+    }
+  }
+
+  static async create(env: Env): Promise<EnableBankingClient> {
+    const credentials = await getEffectiveCredentials(env);
+    return new EnableBankingClient(env, credentials);
+  }
+
+  private async getCredentials(): Promise<{ appId: string; privateKey: string }> {
+    if (this.credentials) {
+      return this.credentials;
+    }
+    const creds = await getEffectiveCredentials(this.env);
+    if (!creds) {
+      throw new Error("Enable Banking credentials not configured. Please complete the setup wizard.");
+    }
+    this.credentials = creds;
+    return creds;
   }
 
   private async getAuthToken(): Promise<string> {
-    const payload = createJWTPayload(this.env.ENABLE_BANKING_APP_ID);
-    return await signJWT(payload, this.env.ENABLE_BANKING_PRIVATE_KEY);
+    const creds = await this.getCredentials();
+    const payload = createJWTPayload(creds.appId);
+    return await signJWT(payload, creds.privateKey);
+  }
+
+  hasCredentials(): boolean {
+    return this.credentials !== null;
   }
 
   private async request<T>(

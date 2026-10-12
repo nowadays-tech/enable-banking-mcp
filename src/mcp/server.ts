@@ -139,7 +139,7 @@ export function createBankingMcpServer(env: Env) {
         );
       }
 
-      const client = new EnableBankingClient(env);
+      const client = await EnableBankingClient.create(env);
       const balances = await client.getBalances(account_id);
 
       const formatted = balances.balances.map((b) => ({
@@ -203,7 +203,7 @@ export function createBankingMcpServer(env: Env) {
         );
       }
 
-      const client = new EnableBankingClient(env);
+      const client = await EnableBankingClient.create(env);
 
       const toDate = date_to || new Date().toISOString().split("T")[0];
       const fromDate =
@@ -287,7 +287,7 @@ export function createBankingMcpServer(env: Env) {
         return textContent(CONSENT_EXPIRED_MESSAGE);
       }
 
-      const client = new EnableBankingClient(env);
+      const client = await EnableBankingClient.create(env);
       const toDate = date_to || new Date().toISOString().split("T")[0];
       const fromDate =
         date_from ||
@@ -381,7 +381,7 @@ export function createBankingMcpServer(env: Env) {
         return textContent(CONSENT_EXPIRED_MESSAGE);
       }
 
-      const client = new EnableBankingClient(env);
+      const client = await EnableBankingClient.create(env);
 
       let fromDate: string;
       let toDate: string;

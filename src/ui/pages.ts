@@ -1453,6 +1453,36 @@ export function renderTermsPage(hostname: string): string {
 </html>`;
 }
 
+export function renderErrorPage(title: string, message: string, showRetry = true): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Enable Banking MCP - Error</title>
+  <style>${baseStyles}</style>
+</head>
+<body>
+  <div class="container">
+    <div class="page-header">
+      <h1>${escapeHtml(title)}</h1>
+    </div>
+
+    <div class="alert alert-error">
+      <p style="margin: 0;">${escapeHtml(message)}</p>
+    </div>
+
+    ${showRetry ? `
+    <p>If this problem persists, please check your configuration or try again later.</p>
+    <a href="/setup" style="display: inline-block; text-decoration: none; margin-top: 1rem;">
+      <button class="btn-secondary">Back to Setup</button>
+    </a>
+    ` : ''}
+  </div>
+</body>
+</html>`;
+}
+
 export function renderConsentPage(
   clientName: string,
   scopes: string[],

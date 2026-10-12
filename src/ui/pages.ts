@@ -447,8 +447,8 @@ export function renderWizardPage(
       `}
     </div>
 
-    <!-- Step B: Enter Credentials -->
-    <div id="credentialsSection" class="step-content ${!state.hasCredentials ? 'active' : 'completed'} ${state.hasCredentials && !state.credentialsFromEnv ? '' : state.hasCredentials ? 'hidden' : ''}">
+    <!-- Step B: Enter Credentials (only shown when no credentials exist or user clicks Update Credentials) -->
+    <div id="credentialsSection" class="step-content ${!state.hasCredentials ? 'active' : 'completed'} ${state.hasCredentials ? 'hidden' : ''}">
       <div class="step-header">
         <div class="step-title">
           <span class="step-number">${state.hasCredentials ? '✓' : 'B'}</span>
@@ -604,10 +604,15 @@ export function renderWizardPage(
 
             try {
               const res = await fetch('/api/banks?country=' + encodeURIComponent(country));
-              allBanks = await res.json();
+              const data = await res.json();
+              if (!res.ok || data.error) {
+                banksList.innerHTML = '<div class="error">' + (data.error || 'Failed to load banks: ' + res.status) + '</div>';
+                return;
+              }
+              allBanks = data;
               renderBanks(allBanks);
             } catch (err) {
-              banksList.innerHTML = '<div class="error">Failed to load banks</div>';
+              banksList.innerHTML = '<div class="error">Failed to load banks: ' + (err.message || 'Network error') + '</div>';
             }
           });
 
@@ -770,10 +775,15 @@ export function renderSetupPage(countries: string[]): string {
 
       try {
         const res = await fetch('/api/banks?country=' + encodeURIComponent(country));
-        allBanks = await res.json();
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          banksList.innerHTML = '<div class="error">' + (data.error || 'Failed to load banks: ' + res.status) + '</div>';
+          return;
+        }
+        allBanks = data;
         renderBanks(allBanks);
       } catch (err) {
-        banksList.innerHTML = '<div class="error">Failed to load banks</div>';
+        banksList.innerHTML = '<div class="error">Failed to load banks: ' + (err.message || 'Network error') + '</div>';
       }
     });
 

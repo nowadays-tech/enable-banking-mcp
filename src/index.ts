@@ -346,7 +346,7 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
           try {
             const normalizedPem = await normalizePEM(privateKey);
             const payload = createJWTPayload(appId);
-            const token = await signJWT(payload, normalizedPem);
+            const token = await signJWT(payload, normalizedPem, appId);
             
             const apiBase = this.env.ENABLE_BANKING_API_BASE || "https://api.enablebanking.com";
             const response = await fetch(`${apiBase}/application`, {

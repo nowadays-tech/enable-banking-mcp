@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { signJWT, createJWTPayload } from "../src/enable-banking/jwt";
 
-const TEST_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
+const TEST_PKCS8_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQD5Z7z9tKxLdmGI
 X2DA03VSU1JTppN9kC7XDGjlFHJ9fcVUcmd9Pv8rpOKwDlzX90lmplYTHIQ6wPoa
 ic4B7P14vUm+3g4fE7kJB8PRZ39mZ0QcZ7Zeu9CCa7ud0ytXBfDQy5sNOBxV6C5l
@@ -31,37 +31,29 @@ sp2zACbZZjZ2qZdLihnQ2lE=
 -----END PRIVATE KEY-----`;
 
 describe("JWT Signing", () => {
-  it("should create a valid JWT payload", () => {
+  it("should create a valid JWT payload with correct iss and aud for Enable Banking", () => {
     const appId = "test-app-id";
     const payload = createJWTPayload(appId);
 
-    expect(payload.iss).toBe(`enablebanking.com/api/${appId}`);
-    expect(payload.aud).toBe("enablebanking.com");
+    expect(payload.iss).toBe("enablebanking.com");
+    expect(payload.aud).toBe("api.enablebanking.com");
     expect(payload.iat).toBeDefined();
     expect(payload.exp).toBeDefined();
     expect(payload.exp).toBeGreaterThan(payload.iat);
     expect(payload.exp - payload.iat).toBe(3600);
   });
 
-  it("should create JWT payload with custom audience", () => {
-    const appId = "test-app-id";
-    const audience = "custom.audience.com";
-    const payload = createJWTPayload(appId, audience);
-
-    expect(payload.aud).toBe(audience);
-  });
-
   it("should sign JWT and produce three parts", async () => {
     const payload = createJWTPayload("test-app");
-    const jwt = await signJWT(payload, TEST_PRIVATE_KEY);
+    const jwt = await signJWT(payload, TEST_PKCS8_PRIVATE_KEY);
 
     const parts = jwt.split(".");
     expect(parts.length).toBe(3);
   });
 
-  it("should produce consistent header", async () => {
+  it("should produce consistent header without kid when not provided", async () => {
     const payload = createJWTPayload("test-app");
-    const jwt = await signJWT(payload, TEST_PRIVATE_KEY);
+    const jwt = await signJWT(payload, TEST_PKCS8_PRIVATE_KEY);
 
     const [headerB64] = jwt.split(".");
     let base64 = headerB64.replace(/-/g, "+").replace(/_/g, "/");
@@ -70,28 +62,57 @@ describe("JWT Signing", () => {
 
     expect(header.alg).toBe("RS256");
     expect(header.typ).toBe("JWT");
+    expect(header.kid).toBeUndefined();
   });
 
-  it("should include payload in JWT", async () => {
+  it("should include kid in header when provided", async () => {
+    const appId = "my-app-id";
+    const payload = createJWTPayload(appId);
+    const jwt = await signJWT(payload, TEST_PKCS8_PRIVATE_KEY, appId);
+
+    const [headerB64] = jwt.split(".");
+    let base64 = headerB64.replace(/-/g, "+").replace(/_/g, "/");
+    while (base64.length % 4) base64 += "=";
+    const header = JSON.parse(atob(base64));
+
+    expect(header.alg).toBe("RS256");
+    expect(header.typ).toBe("JWT");
+    expect(header.kid).toBe(appId);
+  });
+
+  it("should include correct Enable Banking claims in JWT", async () => {
     const appId = "my-test-app";
     const payload = createJWTPayload(appId);
-    const jwt = await signJWT(payload, TEST_PRIVATE_KEY);
+    const jwt = await signJWT(payload, TEST_PKCS8_PRIVATE_KEY, appId);
 
     const [, payloadB64] = jwt.split(".");
     let base64 = payloadB64.replace(/-/g, "+").replace(/_/g, "/");
     while (base64.length % 4) base64 += "=";
     const decodedPayload = JSON.parse(atob(base64));
 
-    expect(decodedPayload.iss).toBe(`enablebanking.com/api/${appId}`);
-    expect(decodedPayload.aud).toBe("enablebanking.com");
+    expect(decodedPayload.iss).toBe("enablebanking.com");
+    expect(decodedPayload.aud).toBe("api.enablebanking.com");
   });
 
   it("should produce different signatures for different payloads", async () => {
-    const payload1 = createJWTPayload("app1");
-    const payload2 = createJWTPayload("app2");
+    const now = Math.floor(Date.now() / 1000);
+    const payload1 = {
+      iss: "enablebanking.com",
+      aud: "api.enablebanking.com",
+      iat: now,
+      exp: now + 3600,
+      sub: "user1"
+    };
+    const payload2 = {
+      iss: "enablebanking.com",
+      aud: "api.enablebanking.com",
+      iat: now,
+      exp: now + 3600,
+      sub: "user2"
+    };
 
-    const jwt1 = await signJWT(payload1, TEST_PRIVATE_KEY);
-    const jwt2 = await signJWT(payload2, TEST_PRIVATE_KEY);
+    const jwt1 = await signJWT(payload1, TEST_PKCS8_PRIVATE_KEY);
+    const jwt2 = await signJWT(payload2, TEST_PKCS8_PRIVATE_KEY);
 
     const sig1 = jwt1.split(".")[2];
     const sig2 = jwt2.split(".")[2];

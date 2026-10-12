@@ -106,12 +106,17 @@ export interface JWTPayload {
 
 export async function signJWT(
   payload: JWTPayload,
-  privateKeyPem: string
+  privateKeyPem: string,
+  kid?: string
 ): Promise<string> {
-  const header = {
+  const header: Record<string, string> = {
     alg: "RS256",
     typ: "JWT",
   };
+  
+  if (kid) {
+    header.kid = kid;
+  }
 
   const encodedHeader = base64UrlEncode(
     new TextEncoder().encode(JSON.stringify(header))
@@ -134,14 +139,11 @@ export async function signJWT(
   return `${signingInput}.${encodedSignature}`;
 }
 
-export function createJWTPayload(
-  appId: string,
-  audience: string = "enablebanking.com"
-): JWTPayload {
+export function createJWTPayload(appId: string): JWTPayload {
   const now = Math.floor(Date.now() / 1000);
   return {
-    iss: `enablebanking.com/api/${appId}`,
-    aud: audience,
+    iss: "enablebanking.com",
+    aud: "api.enablebanking.com",
     iat: now,
     exp: now + 3600,
   };

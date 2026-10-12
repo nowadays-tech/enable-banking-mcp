@@ -43,7 +43,7 @@ export class EnableBankingClient {
   private async getAuthToken(): Promise<string> {
     const creds = await this.getCredentials();
     const payload = createJWTPayload(creds.appId);
-    return await signJWT(payload, creds.privateKey);
+    return await signJWT(payload, creds.privateKey, creds.appId);
   }
 
   hasCredentials(): boolean {

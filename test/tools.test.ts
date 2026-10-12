@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import type { BankSession, Transaction } from "../src/types";
-import { isConsentExpired } from "../src/enable-banking/client";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { BankSession, Transaction, Env } from "../src/types";
+import { isConsentExpired, EnableBankingClient } from "../src/enable-banking/client";
 
 const mockSession: BankSession = {
   sessionId: "session-123",
@@ -339,5 +339,178 @@ describe("Transaction Search", () => {
     });
 
     expect(matches.length).toBe(0);
+  });
+});
+
+describe("Auth Request Body Shape", () => {
+  const mockCredentials = {
+    appId: "test-app-id",
+    privateKey: `-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC7o5IDAUqyXWZE
+7oKzL1er35DmLazWuMHDtSeRHgh1lMAdqUn6yclNHQKZHdHKO/HNBJugS+r7O0Ej
+BCDM8eNnAqBcaGq23YzBpuqPPBt/3ZLvDr7FfYMthQFP5ywGhmCvtAV57K4i+M5x
+ePDqp08MRBPtqIyQKzQ6UUxFQ+dN9M+WbQOCKYY5xIPKJgxMELx0fQ6dCjWPaXJI
+3jY4k6mLhXD1V0d2DjnLF5PxYFnAy0FH2D8DJyh3fRhxH4JJpNZ8MHKx5w7Kpupl
+yMSi9JxV8qxYKi2PHx2L8+y6UZiMFJnM6qNGzLsAjQ5qXvhODc5xKI2t1a6OzJ2K
+zL5tJE7BAgMBAAECggEABzL7CXRSA/LLjJH+RbGi8YO/8lNwE8kMR0m9TbFmVy5/
+wzOLQPNOLi6lJwv2ks9oBmyfCkSHAVnMZ9CdCLiI0eGPdYbJdJsb1xGCJZ9xNLnV
+dEJcHiWZjkq7SAL5XYYGnVTxD7dRhYFU9nYVHGHhSJIGGJqFJ/DhZCZ0+QBKbCMT
+lE+14WyWIbQEdbZPylI4hy7opVMSLBgMpXDHFBCANJIZcQsr5hOuBglL/aRz7K6f
+g5SQFYh7z9x6+PMF5LCX9C0B1nv5jL7cXqA1xv3xlGn8C5zO8i1VqN5/F5EMdMyl
+l8MBPZHqFErFwSE5xaqxH0d5+P2m4JrZqF0dLNZvIQKBgQD0GkTPVmYlfDLsWvPs
+A0x7F0AhN3NSrNP5RkUH2ZOM8SL5MUAWPingqPLhTD2rCNJ0CZH5aJhhhVzz7eZD
+xYFz5UL6uN5iF4KKg0VYG7HVPBLJhD5JyP5LNqJe9m7/J7kGTyKX4DW+cVkNVYik
+8zV2i0P5pAR+b7hD9Y6tUPb4CQKBgQDE+i9J+NjrqGIh5tlBIiLG3ndENKPh4BLh
+5iM/1Fp5y/2x5hJM0w7uHC8h7XsMU7l5HCNN5BWE0hSJHFgq+fz+d6xYKJJgCh+F
+VDpfJ5nLD9xUqVXvd3k5m6Lvn7qL5wUz/J5XNkTCxYHYSghAfAYNKQuB3/QzZPVS
+lpYihCLN6QKBgEp0tIWdlJa0rJME8b3y7D5g8Wdl4x4ngV7wIp6T7E1S5M0M8gNl
+g5lFa7v/rhYK8dm2yOFM/McX0ja0nzPXtzJKIGI9MqPcP9GgUYqTR7M8IrYBb0yS
+L6WDfeSfNTf5L8fJ7pM6zYMUfvN0H1lNkC5J5hpJXkPD4iqQmNwv0ub5AoGBAK0/
+ZT9VQHI9Yz7+m5p8+j3dwP3I2j7R0jdepJmprKiJeXMgCZhDO/NZ6N2xzQ8NQCBR
+d7SfYPYPv0gR2vXZLLQ5Fxv5cK9CDh+HMhE2gG9Lxp3P8qUxHxpL/ohXLvPWC5m5
+QYQM+RfNnVBFqXqJlNe3sJYH9MJh5X9mHrMJ7bZhAoGBANiNiL9lM0p1PE7y9sNl
+u0kHCyqoF7RJLM5QbMoEu1K/F7HNNLB2GfQU7kGJH7dJx9xZwZdPAqOz8M1kEnCH
+MIeNKP2q7j6v3P3mHl2QF7hG3z5dQLs4R2xYIYXNXiX9q5kHYz5lJfNXM2F1gXFN
+cBPC3yZ0OB/L3d4dQ6xKDBJn
+-----END PRIVATE KEY-----`,
+  };
+
+  const mockEnv = {
+    BANKING_KV: {} as KVNamespace,
+    OAUTH_KV: {} as KVNamespace,
+    AUTH_SECRET: "test-secret",
+  } as Env;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-06-15T12:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("should include aspsp with both name and country", () => {
+    const client = new EnableBankingClient(mockEnv, mockCredentials);
+    const body = client.buildAuthRequestBody(
+      "Danske Bank",
+      "DK",
+      "https://example.com/callback",
+      "personal",
+      "test-state"
+    );
+
+    expect(body.aspsp).toBeDefined();
+    expect(body.aspsp).toHaveProperty("name", "Danske Bank");
+    expect(body.aspsp).toHaveProperty("country", "DK");
+  });
+
+  it("should include valid_until as full ISO 8601 datetime with timezone", () => {
+    const client = new EnableBankingClient(mockEnv, mockCredentials);
+    const body = client.buildAuthRequestBody(
+      "Nordea Bank",
+      "SE",
+      "https://example.com/callback",
+      "personal",
+      "test-state"
+    );
+
+    expect(body.access).toBeDefined();
+    const access = body.access as { valid_until: string };
+    expect(access.valid_until).toBeDefined();
+    
+    expect(access.valid_until).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/);
+    
+    const parsedDate = new Date(access.valid_until);
+    expect(parsedDate.toISOString()).toBe(access.valid_until);
+  });
+
+  it("should set valid_until to ~90 days from now by default", () => {
+    const client = new EnableBankingClient(mockEnv, mockCredentials);
+    const body = client.buildAuthRequestBody(
+      "Test Bank",
+      "NO",
+      "https://example.com/callback",
+      "personal"
+    );
+
+    const access = body.access as { valid_until: string };
+    const validUntil = new Date(access.valid_until);
+    const now = new Date("2024-06-15T12:00:00.000Z");
+    const daysDiff = Math.floor((validUntil.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    expect(daysDiff).toBe(90);
+  });
+
+  it("should respect maximum_consent_validity if provided and less than 90 days", () => {
+    const client = new EnableBankingClient(mockEnv, mockCredentials);
+    const body = client.buildAuthRequestBody(
+      "Test Bank",
+      "FI",
+      "https://example.com/callback",
+      "personal",
+      "test-state",
+      30
+    );
+
+    const access = body.access as { valid_until: string };
+    const validUntil = new Date(access.valid_until);
+    const now = new Date("2024-06-15T12:00:00.000Z");
+    const daysDiff = Math.floor((validUntil.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    expect(daysDiff).toBe(30);
+  });
+
+  it("should cap maximum_consent_validity at 90 days", () => {
+    const client = new EnableBankingClient(mockEnv, mockCredentials);
+    const body = client.buildAuthRequestBody(
+      "Test Bank",
+      "DE",
+      "https://example.com/callback",
+      "personal",
+      "test-state",
+      180
+    );
+
+    const access = body.access as { valid_until: string };
+    const validUntil = new Date(access.valid_until);
+    const now = new Date("2024-06-15T12:00:00.000Z");
+    const daysDiff = Math.floor((validUntil.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    expect(daysDiff).toBe(90);
+  });
+
+  it("should include all required fields in auth request body", () => {
+    const client = new EnableBankingClient(mockEnv, mockCredentials);
+    const body = client.buildAuthRequestBody(
+      "Nordea Bank",
+      "SE",
+      "https://example.com/callback",
+      "personal",
+      "my-state-123"
+    );
+
+    expect(body).toHaveProperty("aspsp");
+    expect(body).toHaveProperty("redirect_url", "https://example.com/callback");
+    expect(body).toHaveProperty("psu_type", "personal");
+    expect(body).toHaveProperty("access");
+    expect(body).toHaveProperty("state", "my-state-123");
+    
+    const aspsp = body.aspsp as { name: string; country: string };
+    expect(aspsp.name).toBe("Nordea Bank");
+    expect(aspsp.country).toBe("SE");
+  });
+
+  it("should support business psu_type", () => {
+    const client = new EnableBankingClient(mockEnv, mockCredentials);
+    const body = client.buildAuthRequestBody(
+      "Business Bank",
+      "GB",
+      "https://example.com/callback",
+      "business",
+      "biz-state"
+    );
+
+    expect(body).toHaveProperty("psu_type", "business");
   });
 });

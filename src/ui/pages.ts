@@ -1340,7 +1340,16 @@ export function renderCallbackSuccessPage(session: BankSession): string {
 </html>`;
 }
 
-export function renderCallbackErrorPage(error: string): string {
+export function renderCallbackErrorPage(error: string, details?: string): string {
+  const detailsSection = details ? `
+    <details style="margin-top: 1rem; font-size: 0.8125rem;">
+      <summary style="cursor: pointer; color: var(--muted-foreground); user-select: none;">
+        Show technical details
+      </summary>
+      <pre style="margin-top: 0.5rem; padding: 0.75rem; background: var(--muted); border-radius: var(--radius); overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 0.75rem; color: var(--muted-foreground);">${escapeHtml(details)}</pre>
+    </details>
+  ` : "";
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1353,12 +1362,14 @@ export function renderCallbackErrorPage(error: string): string {
   <div class="container">
     <div class="alert alert-error">
       <strong>Connection Failed</strong>
-      <p style="margin: 0.25rem 0 0 0;">${error}</p>
+      <p style="margin: 0.25rem 0 0 0;">${escapeHtml(error)}</p>
     </div>
 
     <p>Please try connecting your bank again. If the problem persists, check that your Enable Banking credentials are configured correctly.</p>
+    
+    ${detailsSection}
 
-    <a href="/setup" style="display: block; text-decoration: none;">
+    <a href="/setup" style="display: block; text-decoration: none; margin-top: 1rem;">
       <button class="btn-full">Try Again</button>
     </a>
   </div>

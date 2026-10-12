@@ -66,6 +66,7 @@ export interface ASPSP {
   bic?: string;
   aspsp_id?: string;
   sandbox?: boolean;
+  maximum_consent_validity?: number;
 }
 
 export interface ASPSPsResponse {

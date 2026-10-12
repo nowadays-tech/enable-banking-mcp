@@ -80,6 +80,51 @@ function jsonResponse(data: unknown, status = 200): Response {
   });
 }
 
+function parseApiError(error: unknown): { message: string; details?: string } {
+  if (!(error instanceof Error)) {
+    return { message: "An unknown error occurred" };
+  }
+  
+  const errorText = error.message;
+  
+  const apiErrorMatch = errorText.match(/Enable Banking API error: (\d+) ([^-]+) - (.*)/s);
+  if (apiErrorMatch) {
+    const [, statusCode, statusText, responseBody] = apiErrorMatch;
+    
+    try {
+      const parsed = JSON.parse(responseBody);
+      
+      if (parsed.error) {
+        let friendlyMessage = "Failed to connect to your bank";
+        
+        if (parsed.error === "WRONG_REQUEST_PARAMETERS") {
+          friendlyMessage = "Invalid request parameters";
+        } else if (parsed.error === "UNAUTHORIZED") {
+          friendlyMessage = "Authorization failed";
+        } else if (parsed.error === "ASPSP_ERROR") {
+          friendlyMessage = "Your bank returned an error";
+        }
+        
+        const details = `Error: ${parsed.error}${parsed.message ? `\nMessage: ${parsed.message}` : ""}${parsed.detail ? `\nDetails: ${JSON.stringify(parsed.detail, null, 2)}` : ""}`;
+        
+        return { message: friendlyMessage, details };
+      }
+      
+      return { 
+        message: `Bank connection failed (${statusCode})`, 
+        details: JSON.stringify(parsed, null, 2) 
+      };
+    } catch {
+      return { 
+        message: `Bank connection failed (${statusCode} ${statusText})`, 
+        details: responseBody 
+      };
+    }
+  }
+  
+  return { message: errorText };
+}
+
 const encoder = new TextEncoder();
 
 async function constantTimeCompare(a: string, b: string): Promise<boolean> {
@@ -497,10 +542,18 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
         const formData = await request.formData();
         const aspspId = formData.get("aspsp_id")?.toString();
         const aspspName = formData.get("aspsp_name")?.toString() || aspspId || "";
+        const country = formData.get("country")?.toString();
 
         if (!aspspId) {
           return htmlResponse(
-            renderCallbackErrorPage("Please select a bank"),
+            renderCallbackErrorPage("Please select a bank", "No bank was selected from the list."),
+            400
+          );
+        }
+
+        if (!country) {
+          return htmlResponse(
+            renderCallbackErrorPage("Please select a country", "No country was selected."),
             400
           );
         }
@@ -511,21 +564,21 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
         try {
           const client = await EnableBankingClient.create(this.env);
           const auth = await client.startAuthorization(
-            aspspId,
+            aspspName,
+            country,
             redirectUrl,
             "personal",
             state
           );
 
-          await storePendingAuth(this.env.BANKING_KV, state, aspspId, aspspName, "");
+          await storePendingAuth(this.env.BANKING_KV, state, aspspId, aspspName, country);
 
           return Response.redirect(auth.url, 302);
         } catch (error) {
           console.error("Failed to start authorization:", error);
+          const { message, details } = parseApiError(error);
           return htmlResponse(
-            renderCallbackErrorPage(
-              `Failed to start authorization: ${error instanceof Error ? error.message : "Unknown error"}`
-            ),
+            renderCallbackErrorPage(message, details),
             500
           );
         }

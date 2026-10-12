@@ -86,17 +86,19 @@ export class EnableBankingClient {
   }
 
   async startAuthorization(
-    aspspId: string,
+    aspspName: string,
+    aspspCountry: string,
     redirectUrl: string,
     psuType: "personal" | "business" = "personal",
-    state?: string
+    state?: string,
+    maxConsentValidityDays?: number
   ): Promise<AuthorizationResponse> {
     const body = {
-      aspsp: { name: aspspId },
+      aspsp: { name: aspspName, country: aspspCountry },
       redirect_url: redirectUrl,
       psu_type: psuType,
       access: {
-        valid_until: this.getConsentValidUntil(),
+        valid_until: this.getConsentValidUntil(maxConsentValidityDays),
       },
       state,
     };
@@ -142,10 +144,33 @@ export class EnableBankingClient {
     return await this.request<TransactionsResponse>("GET", path);
   }
 
-  private getConsentValidUntil(): string {
+  private getConsentValidUntil(maxConsentValidityDays?: number): string {
+    const defaultDays = 90;
+    const days = maxConsentValidityDays && maxConsentValidityDays > 0 
+      ? Math.min(maxConsentValidityDays, defaultDays) 
+      : defaultDays;
     const date = new Date();
-    date.setDate(date.getDate() + 90);
-    return date.toISOString().split("T")[0];
+    date.setDate(date.getDate() + days);
+    return date.toISOString();
+  }
+
+  buildAuthRequestBody(
+    aspspName: string,
+    aspspCountry: string,
+    redirectUrl: string,
+    psuType: "personal" | "business",
+    state?: string,
+    maxConsentValidityDays?: number
+  ): Record<string, unknown> {
+    return {
+      aspsp: { name: aspspName, country: aspspCountry },
+      redirect_url: redirectUrl,
+      psu_type: psuType,
+      access: {
+        valid_until: this.getConsentValidUntil(maxConsentValidityDays),
+      },
+      state,
+    };
   }
 }
 

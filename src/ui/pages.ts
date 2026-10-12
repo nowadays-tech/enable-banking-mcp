@@ -1278,8 +1278,10 @@ export function renderPrivacyPage(hostname: string): string {
 </head>
 <body>
   <div class="container">
-    <h1>🔒 Privacy Policy</h1>
-    <p class="subtitle">How your data is handled by this self-hosted MCP server</p>
+    <div class="page-header">
+      <h1>Privacy Policy</h1>
+      <p class="subtitle">How your data is handled by this self-hosted MCP server</p>
+    </div>
 
     <div class="card">
       <h3>Server Operator</h3>
@@ -1344,13 +1346,13 @@ export function renderPrivacyPage(hostname: string): string {
       </p>
     </div>
 
-    <div class="info">
+    <div class="alert alert-info">
       <strong>Last updated:</strong> ${escapeHtml(LAST_UPDATED_DATE)}<br>
       <strong>Server:</strong> ${escapeHtml(hostname)}
     </div>
 
     <a href="/setup" style="display: inline-block; text-decoration: none; margin-top: 1rem;">
-      <button class="btn-secondary">← Back to Setup</button>
+      <button class="btn-secondary">Back to Setup</button>
     </a>
   </div>
 </body>
@@ -1368,8 +1370,10 @@ export function renderTermsPage(hostname: string): string {
 </head>
 <body>
   <div class="container">
-    <h1>📜 Terms of Service</h1>
-    <p class="subtitle">Terms for using this self-hosted MCP server</p>
+    <div class="page-header">
+      <h1>Terms of Service</h1>
+      <p class="subtitle">Terms for using this self-hosted MCP server</p>
+    </div>
 
     <div class="card">
       <h3>Service Description</h3>
@@ -1436,13 +1440,13 @@ export function renderTermsPage(hostname: string): string {
       </p>
     </div>
 
-    <div class="info">
+    <div class="alert alert-info">
       <strong>Last updated:</strong> ${escapeHtml(LAST_UPDATED_DATE)}<br>
       <strong>Server:</strong> ${escapeHtml(hostname)}
     </div>
 
     <a href="/setup" style="display: inline-block; text-decoration: none; margin-top: 1rem;">
-      <button class="btn-secondary">← Back to Setup</button>
+      <button class="btn-secondary">Back to Setup</button>
     </a>
   </div>
 </body>

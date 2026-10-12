@@ -6,8 +6,8 @@
   "compatibility_flags": ["nodejs_compat"],
 
   // KV namespaces - IDs omitted to enable wrangler auto-provisioning.
-  // Deploy to Cloudflare button creates namespaces named:
-  //   enable-banking-mcp-banking-kv and enable-banking-mcp-oauth-kv
+  // Deploy to Cloudflare: name them differently to avoid collision, e.g.:
+  //   enable-banking-mcp-data and enable-banking-mcp-oauth
   //
   // For local development, either:
   //   1. Use `wrangler dev` which auto-creates local KV storage, OR
@@ -22,11 +22,6 @@
   // Enable observability
   "observability": {
     "enabled": true
-  },
-
-  // Environment variables (non-secret)
-  "vars": {
-    "ENABLE_BANKING_API_BASE": "https://api.enablebanking.com"
   }
 
   // Required secret (set via `wrangler secret put` or Cloudflare dashboard):

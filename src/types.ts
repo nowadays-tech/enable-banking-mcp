@@ -3,7 +3,7 @@ export interface Env {
   OAUTH_KV: KVNamespace;
   ENABLE_BANKING_APP_ID?: string;
   ENABLE_BANKING_PRIVATE_KEY?: string;
-  ENABLE_BANKING_API_BASE: string;
+  ENABLE_BANKING_API_BASE?: string;
   AUTH_SECRET: string;
 }
 

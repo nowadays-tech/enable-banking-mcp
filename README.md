@@ -20,10 +20,10 @@ When you click the Deploy to Cloudflare button, you'll be prompted for these val
 | Field | What to Enter |
 |-------|---------------|
 | **AUTH_SECRET** | A password you choose. Used to log in to the setup page, approve Claude/ChatGPT connections, and as the bearer token for Cursor. Use a long random value and save it in your password manager. |
-| **BANKING_KV** | KV namespace for bank connection data. Auto-named `enable-banking-mcp-banking-kv`. |
-| **OAUTH_KV** | KV namespace for OAuth tokens. Auto-named `enable-banking-mcp-oauth-kv`. |
+| **BANKING_KV** | KV namespace for bank connection data. **Give it a unique name**, e.g. `enable-banking-mcp-data`. |
+| **OAUTH_KV** | KV namespace for OAuth tokens. **Give it a different name**, e.g. `enable-banking-mcp-oauth`. |
 
-The KV namespaces are auto-provisioned by Cloudflare with distinct names—you don't need to create them manually.
+**Important:** The two KV namespaces must have different names. The deploy page may suggest the same name for both—rename them to avoid a collision.
 
 Enable Banking credentials (App ID and private key) are configured after deploy via the setup wizard at your worker URL.
 

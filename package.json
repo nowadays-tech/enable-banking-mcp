@@ -24,10 +24,10 @@
         "description": "A password you choose. Used to log in to the setup page, approve Claude/ChatGPT connections, and as the bearer token for Cursor. Use a long random value and save it in your password manager."
       },
       "BANKING_KV": {
-        "description": "Stores your bank connection and encrypted Enable Banking key. Keep the default name."
+        "description": "Stores your bank connection and encrypted Enable Banking key. Give it a unique name, e.g. `enable-banking-mcp-data`."
       },
       "OAUTH_KV": {
-        "description": "Stores logins from Claude/ChatGPT. Keep the default name."
+        "description": "Stores logins from Claude/ChatGPT. Give it a different name, e.g. `enable-banking-mcp-oauth`."
       }
     }
   },

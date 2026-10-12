@@ -1,5 +1,45 @@
 import type { BankSession, ASPSP } from "../types";
 
+const COUNTRY_NAMES: Record<string, string> = {
+  AT: "Austria",
+  BE: "Belgium",
+  BG: "Bulgaria",
+  HR: "Croatia",
+  CY: "Cyprus",
+  CZ: "Czech Republic",
+  DK: "Denmark",
+  EE: "Estonia",
+  FI: "Finland",
+  FR: "France",
+  DE: "Germany",
+  GR: "Greece",
+  HU: "Hungary",
+  IS: "Iceland",
+  IE: "Ireland",
+  IT: "Italy",
+  LV: "Latvia",
+  LI: "Liechtenstein",
+  LT: "Lithuania",
+  LU: "Luxembourg",
+  MT: "Malta",
+  NL: "Netherlands",
+  NO: "Norway",
+  PL: "Poland",
+  PT: "Portugal",
+  RO: "Romania",
+  SK: "Slovakia",
+  SI: "Slovenia",
+  ES: "Spain",
+  SE: "Sweden",
+  CH: "Switzerland",
+  GB: "United Kingdom",
+};
+
+function getCountryDisplayName(code: string): string {
+  const name = COUNTRY_NAMES[code];
+  return name ? `${name} (${code})` : code;
+}
+
 const baseStyles = `
   :root {
     --background: #ffffff;
@@ -19,7 +59,8 @@ const baseStyles = `
     --success: #22c55e;
     --success-foreground: #fafafa;
     --ring: #18181b;
-    --radius: 0.5rem;
+    --ring-offset: #ffffff;
+    --radius: 0.375rem;
   }
   
   @media (prefers-color-scheme: dark) {
@@ -41,6 +82,7 @@ const baseStyles = `
       --success: #16a34a;
       --success-foreground: #fafafa;
       --ring: #d4d4d8;
+      --ring-offset: #09090b;
     }
   }
   
@@ -62,7 +104,7 @@ const baseStyles = `
   }
   
   .page-header {
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
   }
   
   h1 {
@@ -77,7 +119,7 @@ const baseStyles = `
     font-size: 1.125rem;
     font-weight: 600;
     color: var(--foreground);
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
   }
   
   h3 {
@@ -90,7 +132,7 @@ const baseStyles = `
   p {
     color: var(--muted-foreground);
     font-size: 0.875rem;
-    margin-bottom: 1rem;
+    margin-bottom: 0.5rem;
   }
   
   .subtitle {
@@ -102,37 +144,51 @@ const baseStyles = `
     display: block;
     font-size: 0.875rem;
     font-weight: 500;
-    margin-bottom: 0.375rem;
+    margin-bottom: 0.5rem;
     color: var(--foreground);
   }
   
   select, input[type="text"], input[type="password"], textarea {
     width: 100%;
-    padding: 0.5rem 0.75rem;
+    height: 2.5rem;
+    padding: 0 0.75rem;
     background: var(--background);
     border: 1px solid var(--input);
     border-radius: var(--radius);
     font-size: 0.875rem;
     color: var(--foreground);
-    margin-bottom: 1rem;
     transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  
+  textarea {
+    height: auto;
+    padding: 0.5rem 0.75rem;
   }
   
   select:focus, input:focus, textarea:focus {
     outline: none;
     border-color: var(--ring);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 20%, transparent);
+    box-shadow: 0 0 0 2px var(--ring-offset), 0 0 0 4px color-mix(in srgb, var(--ring) 30%, transparent);
   }
   
   select::placeholder, input::placeholder {
     color: var(--muted-foreground);
   }
   
+  .field-group {
+    margin-bottom: 1rem;
+  }
+  
+  .section-group {
+    margin-bottom: 1.5rem;
+  }
+  
   button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 0.5rem 1rem;
+    height: 2.5rem;
+    padding: 0 1rem;
     background: var(--primary);
     color: var(--primary-foreground);
     border: none;
@@ -140,10 +196,15 @@ const baseStyles = `
     font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
-    transition: opacity 0.15s;
+    transition: opacity 0.15s, background-color 0.15s;
   }
   
-  button:hover {
+  button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--ring-offset), 0 0 0 4px color-mix(in srgb, var(--ring) 30%, transparent);
+  }
+  
+  button:hover:not(:disabled) {
     opacity: 0.9;
   }
   
@@ -160,7 +221,7 @@ const baseStyles = `
     border: 1px solid var(--border);
   }
   
-  .btn-secondary:hover {
+  .btn-secondary:hover:not(:disabled) {
     background: var(--muted);
     opacity: 1;
   }
@@ -171,7 +232,8 @@ const baseStyles = `
   }
   
   .btn-sm {
-    padding: 0.375rem 0.75rem;
+    height: 2rem;
+    padding: 0 0.75rem;
     font-size: 0.8125rem;
   }
   
@@ -179,8 +241,9 @@ const baseStyles = `
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 1rem;
-    margin-bottom: 0.75rem;
+    padding: 1.5rem;
+    margin-bottom: 0.5rem;
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   }
   
   .card h3 {
@@ -190,17 +253,17 @@ const baseStyles = `
   .badge {
     display: inline-flex;
     align-items: center;
-    padding: 0.125rem 0.5rem;
+    padding: 0.125rem 0.625rem;
     border-radius: 9999px;
     font-size: 0.75rem;
     font-weight: 500;
-    border: 1px solid transparent;
+    border: 1px solid;
   }
   
   .badge-success {
-    background: color-mix(in srgb, var(--success) 15%, transparent);
+    background: color-mix(in srgb, var(--success) 10%, transparent);
     color: var(--success);
-    border-color: color-mix(in srgb, var(--success) 30%, transparent);
+    border-color: color-mix(in srgb, var(--success) 25%, transparent);
   }
   
   .badge-warning {
@@ -218,20 +281,21 @@ const baseStyles = `
   }
   
   .badge-error {
-    background: color-mix(in srgb, var(--destructive) 15%, transparent);
+    background: color-mix(in srgb, var(--destructive) 10%, transparent);
     color: var(--destructive);
-    border-color: color-mix(in srgb, var(--destructive) 30%, transparent);
+    border-color: color-mix(in srgb, var(--destructive) 25%, transparent);
   }
   
   .badge-muted {
-    background: var(--muted);
+    background: transparent;
     color: var(--muted-foreground);
     border-color: var(--border);
   }
   
-  .badge-active {
-    background: var(--primary);
-    color: var(--primary-foreground);
+  .badge-outline {
+    background: transparent;
+    color: var(--muted-foreground);
+    border-color: var(--border);
   }
   
   .info-row {
@@ -309,7 +373,7 @@ const baseStyles = `
   
   .loading {
     text-align: center;
-    padding: 2rem;
+    padding: 1.5rem;
     color: var(--muted-foreground);
     font-size: 0.875rem;
   }
@@ -339,14 +403,15 @@ const baseStyles = `
     position: absolute;
     top: 0.375rem;
     right: 0.375rem;
-    padding: 0.25rem 0.5rem;
+    height: 1.75rem;
+    padding: 0 0.5rem;
     font-size: 0.75rem;
     background: var(--secondary);
     color: var(--secondary-foreground);
     border: 1px solid var(--border);
   }
   
-  .copy-btn:hover {
+  .copy-btn:hover:not(:disabled) {
     background: var(--muted);
   }
   
@@ -355,23 +420,29 @@ const baseStyles = `
     margin: 1.5rem 0;
   }
   
-  .banks-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 0.5rem;
-    max-height: 280px;
+  /* Command/Combobox style bank list container */
+  .banks-container {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-top: 0.5rem;
+  }
+  
+  .banks-list {
+    max-height: 240px;
     overflow-y: auto;
   }
   
   .bank-item {
     display: flex;
     align-items: center;
-    padding: 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
     cursor: pointer;
-    transition: all 0.15s;
-    background: var(--background);
+    transition: background-color 0.1s;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid transparent;
   }
   
   .bank-item:hover {
@@ -379,13 +450,51 @@ const baseStyles = `
   }
   
   .bank-item.selected {
-    border-color: var(--ring);
     background: var(--muted);
   }
   
+  .bank-item:last-child {
+    border-bottom: none;
+  }
+  
+  .bank-item-content {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  
   .bank-name {
-    font-weight: 500;
+    font-weight: 400;
     font-size: 0.875rem;
+    color: var(--foreground);
+  }
+  
+  .bank-item.selected .bank-name {
+    font-weight: 500;
+  }
+  
+  .bank-check {
+    width: 1rem;
+    height: 1rem;
+    color: var(--foreground);
+    opacity: 0;
+    flex-shrink: 0;
+  }
+  
+  .bank-item.selected .bank-check {
+    opacity: 1;
+  }
+  
+  .bank-sandbox-badge {
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+    padding: 0.125rem 0.375rem;
+    background: var(--muted);
+    border-radius: var(--radius);
+  }
+  
+  .submit-section {
+    margin-top: 1rem;
   }
   
   .hidden { display: none; }
@@ -395,8 +504,9 @@ const baseStyles = `
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 1rem;
-    margin-bottom: 0.75rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   }
   
   .step-content.active {
@@ -404,43 +514,44 @@ const baseStyles = `
   }
   
   .step-content.completed {
-    border-color: var(--success);
+    border-color: color-mix(in srgb, var(--success) 50%, transparent);
   }
   
   .step-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 0.75rem;
+    margin-bottom: 1rem;
   }
   
   .step-title {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.625rem;
   }
   
   .step-number {
-    width: 1.5rem;
-    height: 1.5rem;
+    width: 1.25rem;
+    height: 1.25rem;
     border-radius: 9999px;
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: 500;
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
     background: var(--muted);
     color: var(--muted-foreground);
+    flex-shrink: 0;
   }
   
   .step-content.active .step-number {
-    background: var(--primary);
-    color: var(--primary-foreground);
+    background: var(--foreground);
+    color: var(--background);
   }
   
   .step-content.completed .step-number {
-    background: var(--success);
-    color: var(--success-foreground);
+    background: color-mix(in srgb, var(--success) 15%, transparent);
+    color: var(--success);
   }
   
   .instructions-list {
@@ -470,7 +581,7 @@ const baseStyles = `
     border-radius: var(--radius);
     padding: 1.25rem;
     text-align: center;
-    margin-bottom: 1rem;
+    margin-bottom: 0.5rem;
     cursor: pointer;
     transition: all 0.15s;
   }
@@ -511,7 +622,7 @@ const baseStyles = `
   .validation-result {
     padding: 0.75rem;
     border-radius: var(--radius);
-    margin-top: 0.75rem;
+    margin-top: 0.5rem;
     font-size: 0.875rem;
   }
   
@@ -612,7 +723,7 @@ export function renderWizardPage(
           <span class="step-number">${state.hasCredentials ? '✓' : '1'}</span>
           <h3>Create Enable Banking App</h3>
         </div>
-        ${state.hasCredentials ? '<span class="badge badge-success">Complete</span>' : '<span class="badge badge-active">Step 1</span>'}
+        ${state.hasCredentials ? '<span class="badge badge-success">Complete</span>' : '<span class="badge badge-outline">Step 1</span>'}
       </div>
       
       ${!state.hasCredentials ? `
@@ -693,7 +804,7 @@ export function renderWizardPage(
           <span class="step-number">${state.hasCredentials ? '✓' : '2'}</span>
           <h3>Connect Enable Banking</h3>
         </div>
-        ${state.hasCredentials ? '<span class="badge badge-success">Complete</span>' : '<span class="badge badge-active">Step 2</span>'}
+        ${state.hasCredentials ? '<span class="badge badge-success">Complete</span>' : '<span class="badge badge-outline">Step 2</span>'}
       </div>
       
       ${!state.hasCredentials || !state.credentialsFromEnv ? `
@@ -774,7 +885,7 @@ export function renderWizardPage(
           <span class="step-number">${state.hasBankSession ? '✓' : '3'}</span>
           <h3>Connect Your Bank</h3>
         </div>
-        ${state.hasBankSession ? '<span class="badge badge-success">Connected</span>' : state.hasCredentials ? '<span class="badge badge-active">Step 3</span>' : '<span class="badge badge-muted">Pending</span>'}
+        ${state.hasBankSession ? '<span class="badge badge-success">Connected</span>' : state.hasCredentials ? '<span class="badge badge-outline">Step 3</span>' : '<span class="badge badge-muted">Pending</span>'}
       </div>
       
       ${state.hasBankSession ? `
@@ -801,27 +912,32 @@ export function renderWizardPage(
         <p>Select your country and bank to connect your account.</p>
         
         <form id="bankForm" action="/auth/start" method="POST">
-          <label for="country">Select Country</label>
-          <select id="country" name="country" required>
-            <option value="">Choose a country...</option>
-            ${countries.map((c) => `<option value="${c}">${c}</option>`).join("")}
-          </select>
+          <div class="field-group">
+            <label for="country">Country</label>
+            <select id="country" name="country" required>
+              <option value="">Select a country...</option>
+              ${countries.map((c) => `<option value="${c}">${escapeHtml(getCountryDisplayName(c))}</option>`).join("")}
+            </select>
+          </div>
 
-          <div id="bankSection" class="hidden">
-            <label>Select Bank</label>
-            <input type="text" id="bankSearch" placeholder="Search banks..." />
-            <div id="banksList" class="banks-grid"></div>
+          <div id="bankSection" class="hidden section-group">
+            <label for="bankSearch">Bank</label>
+            <input type="text" id="bankSearch" placeholder="Search banks..." style="margin-bottom: 0;" />
+            <div class="banks-container">
+              <div id="banksList" class="banks-list"></div>
+            </div>
             <input type="hidden" id="aspspId" name="aspsp_id" required />
             <input type="hidden" id="aspspName" name="aspsp_name" />
           </div>
 
-          <div id="submitSection" class="hidden">
-            <button type="submit" class="btn-full">Connect Bank</button>
+          <div id="submitSection" class="submit-section hidden">
+            <button type="submit" id="connectBankBtn" class="btn-full" disabled>Connect Bank</button>
           </div>
         </form>
         
         <script>
           let allBanks = [];
+          let selectedBankId = null;
           const countrySelect = document.getElementById('country');
           const bankSection = document.getElementById('bankSection');
           const banksList = document.getElementById('banksList');
@@ -829,29 +945,40 @@ export function renderWizardPage(
           const aspspIdInput = document.getElementById('aspspId');
           const aspspNameInput = document.getElementById('aspspName');
           const submitSection = document.getElementById('submitSection');
+          const connectBankBtn = document.getElementById('connectBankBtn');
+
+          function updateConnectButton() {
+            connectBankBtn.disabled = !selectedBankId;
+          }
 
           countrySelect.addEventListener('change', async () => {
             const country = countrySelect.value;
+            selectedBankId = null;
+            aspspIdInput.value = '';
+            aspspNameInput.value = '';
+            updateConnectButton();
+            
             if (!country) {
               bankSection.classList.add('hidden');
+              submitSection.classList.add('hidden');
               return;
             }
 
             banksList.innerHTML = '<div class="loading">Loading banks...</div>';
             bankSection.classList.remove('hidden');
-            submitSection.classList.add('hidden');
+            submitSection.classList.remove('hidden');
 
             try {
               const res = await fetch('/api/banks?country=' + encodeURIComponent(country));
               const data = await res.json();
               if (!res.ok || data.error) {
-                banksList.innerHTML = '<div class="alert alert-error">' + (data.error || 'Failed to load banks: ' + res.status) + '</div>';
+                banksList.innerHTML = '<div class="alert alert-error" style="margin: 0.5rem;">' + (data.error || 'Failed to load banks: ' + res.status) + '</div>';
                 return;
               }
               allBanks = data;
               renderBanks(allBanks);
             } catch (err) {
-              banksList.innerHTML = '<div class="alert alert-error">Failed to load banks: ' + (err.message || 'Network error') + '</div>';
+              banksList.innerHTML = '<div class="alert alert-error" style="margin: 0.5rem;">Failed to load banks: ' + (err.message || 'Network error') + '</div>';
             }
           });
 
@@ -863,22 +990,29 @@ export function renderWizardPage(
 
           function renderBanks(banks) {
             if (banks.length === 0) {
-              banksList.innerHTML = '<p class="loading">No banks found</p>';
+              banksList.innerHTML = '<div class="loading">No banks found</div>';
               return;
             }
-            banksList.innerHTML = banks.map(b => 
-              '<div class="bank-item" data-id="' + (b.aspsp_id || b.name) + '" data-name="' + b.name + '">' +
-                '<span class="bank-name">' + b.name + (b.sandbox ? ' (Sandbox)' : '') + '</span>' +
-              '</div>'
-            ).join('');
+            banksList.innerHTML = banks.map(b => {
+              const bankId = b.aspsp_id || b.name;
+              const isSelected = bankId === selectedBankId;
+              return '<div class="bank-item' + (isSelected ? ' selected' : '') + '" data-id="' + bankId + '" data-name="' + b.name + '">' +
+                '<div class="bank-item-content">' +
+                  '<span class="bank-name">' + b.name + '</span>' +
+                  (b.sandbox ? '<span class="bank-sandbox-badge">Sandbox</span>' : '') +
+                '</div>' +
+                '<svg class="bank-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' +
+              '</div>';
+            }).join('');
 
             document.querySelectorAll('.bank-item').forEach(item => {
               item.addEventListener('click', () => {
                 document.querySelectorAll('.bank-item').forEach(i => i.classList.remove('selected'));
                 item.classList.add('selected');
+                selectedBankId = item.dataset.id;
                 aspspIdInput.value = item.dataset.id;
                 aspspNameInput.value = item.dataset.name;
-                submitSection.classList.remove('hidden');
+                updateConnectButton();
               });
             });
           }
@@ -973,28 +1107,33 @@ export function renderSetupPage(countries: string[]): string {
     </div>
 
     <form id="setupForm" action="/auth/start" method="POST">
-      <label for="country">Select Country</label>
-      <select id="country" name="country" required>
-        <option value="">Choose a country...</option>
-        ${countries.map((c) => `<option value="${c}">${c}</option>`).join("")}
-      </select>
+      <div class="field-group">
+        <label for="country">Country</label>
+        <select id="country" name="country" required>
+          <option value="">Select a country...</option>
+          ${countries.map((c) => `<option value="${c}">${escapeHtml(getCountryDisplayName(c))}</option>`).join("")}
+        </select>
+      </div>
 
-      <div id="bankSection" class="hidden">
-        <label>Select Bank</label>
-        <input type="text" id="bankSearch" placeholder="Search banks..." />
-        <div id="banksList" class="banks-grid"></div>
+      <div id="bankSection" class="hidden section-group">
+        <label for="bankSearch">Bank</label>
+        <input type="text" id="bankSearch" placeholder="Search banks..." style="margin-bottom: 0;" />
+        <div class="banks-container">
+          <div id="banksList" class="banks-list"></div>
+        </div>
         <input type="hidden" id="aspspId" name="aspsp_id" required />
         <input type="hidden" id="aspspName" name="aspsp_name" />
       </div>
 
-      <div id="submitSection" class="hidden">
-        <button type="submit" id="connectBtn">Connect Bank</button>
+      <div id="submitSection" class="submit-section hidden">
+        <button type="submit" id="connectBtn" class="btn-full" disabled>Connect Bank</button>
       </div>
     </form>
   </div>
 
   <script>
     let allBanks = [];
+    let selectedBankId = null;
     const countrySelect = document.getElementById('country');
     const bankSection = document.getElementById('bankSection');
     const banksList = document.getElementById('banksList');
@@ -1002,29 +1141,40 @@ export function renderSetupPage(countries: string[]): string {
     const aspspIdInput = document.getElementById('aspspId');
     const aspspNameInput = document.getElementById('aspspName');
     const submitSection = document.getElementById('submitSection');
+    const connectBtn = document.getElementById('connectBtn');
+
+    function updateConnectButton() {
+      connectBtn.disabled = !selectedBankId;
+    }
 
     countrySelect.addEventListener('change', async () => {
       const country = countrySelect.value;
+      selectedBankId = null;
+      aspspIdInput.value = '';
+      aspspNameInput.value = '';
+      updateConnectButton();
+      
       if (!country) {
         bankSection.classList.add('hidden');
+        submitSection.classList.add('hidden');
         return;
       }
 
       banksList.innerHTML = '<div class="loading">Loading banks...</div>';
       bankSection.classList.remove('hidden');
-      submitSection.classList.add('hidden');
+      submitSection.classList.remove('hidden');
 
       try {
         const res = await fetch('/api/banks?country=' + encodeURIComponent(country));
         const data = await res.json();
         if (!res.ok || data.error) {
-          banksList.innerHTML = '<div class="alert alert-error">' + (data.error || 'Failed to load banks: ' + res.status) + '</div>';
+          banksList.innerHTML = '<div class="alert alert-error" style="margin: 0.5rem;">' + (data.error || 'Failed to load banks: ' + res.status) + '</div>';
           return;
         }
         allBanks = data;
         renderBanks(allBanks);
       } catch (err) {
-        banksList.innerHTML = '<div class="alert alert-error">Failed to load banks: ' + (err.message || 'Network error') + '</div>';
+        banksList.innerHTML = '<div class="alert alert-error" style="margin: 0.5rem;">Failed to load banks: ' + (err.message || 'Network error') + '</div>';
       }
     });
 
@@ -1036,22 +1186,29 @@ export function renderSetupPage(countries: string[]): string {
 
     function renderBanks(banks) {
       if (banks.length === 0) {
-        banksList.innerHTML = '<p class="loading">No banks found</p>';
+        banksList.innerHTML = '<div class="loading">No banks found</div>';
         return;
       }
-      banksList.innerHTML = banks.map(b => 
-        '<div class="bank-item" data-id="' + (b.aspsp_id || b.name) + '" data-name="' + b.name + '">' +
-          '<span class="bank-name">' + b.name + (b.sandbox ? ' (Sandbox)' : '') + '</span>' +
-        '</div>'
-      ).join('');
+      banksList.innerHTML = banks.map(b => {
+        const bankId = b.aspsp_id || b.name;
+        const isSelected = bankId === selectedBankId;
+        return '<div class="bank-item' + (isSelected ? ' selected' : '') + '" data-id="' + bankId + '" data-name="' + b.name + '">' +
+          '<div class="bank-item-content">' +
+            '<span class="bank-name">' + b.name + '</span>' +
+            (b.sandbox ? '<span class="bank-sandbox-badge">Sandbox</span>' : '') +
+          '</div>' +
+          '<svg class="bank-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' +
+        '</div>';
+      }).join('');
 
       document.querySelectorAll('.bank-item').forEach(item => {
         item.addEventListener('click', () => {
           document.querySelectorAll('.bank-item').forEach(i => i.classList.remove('selected'));
           item.classList.add('selected');
+          selectedBankId = item.dataset.id;
           aspspIdInput.value = item.dataset.id;
           aspspNameInput.value = item.dataset.name;
-          submitSection.classList.remove('hidden');
+          updateConnectButton();
         });
       });
     }

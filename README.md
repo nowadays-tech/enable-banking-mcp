@@ -20,10 +20,10 @@ When you click the Deploy to Cloudflare button, you'll be prompted for these val
 | Field | What to Enter |
 |-------|---------------|
 | **AUTH_SECRET** | A password you choose. Used to log in to the setup page, approve Claude/ChatGPT connections, and as the bearer token for Cursor. Use a long random value and save it in your password manager. |
-| **BANKING_KV** | KV namespace for bank connection data. Keep the default name. |
-| **OAUTH_KV** | KV namespace for OAuth tokens. Keep the default name. |
+| **BANKING_KV** | KV namespace for bank connection data. Auto-named `enable-banking-mcp-banking-kv`. |
+| **OAUTH_KV** | KV namespace for OAuth tokens. Auto-named `enable-banking-mcp-oauth-kv`. |
 
-The KV namespaces are auto-provisioned by Cloudflare—you don't need to create them manually.
+The KV namespaces are auto-provisioned by Cloudflare with distinct names—you don't need to create them manually.
 
 Enable Banking credentials (App ID and private key) are configured after deploy via the setup wizard at your worker URL.
 
@@ -218,13 +218,16 @@ This server supports two authentication methods:
    cp .dev.vars.example .dev.vars
    ```
 
-2. Create KV namespaces for local development:
-   ```bash
-   npx wrangler kv namespace create BANKING_KV
-   npx wrangler kv namespace create OAUTH_KV
-   ```
+2. Run `npm run dev` — wrangler automatically creates local KV storage that persists between runs.
 
-3. Update `wrangler.jsonc` with the KV namespace IDs from the output above.
+**Optional: Remote KV for `wrangler dev --remote`**
+
+If you need to develop against remote KV namespaces:
+```bash
+npx wrangler kv namespace create BANKING_KV
+npx wrangler kv namespace create OAUTH_KV
+# Add the returned IDs to wrangler.jsonc as "id" fields
+```
 
 ### Commands
 

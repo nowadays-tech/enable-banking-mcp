@@ -5,20 +5,18 @@
   "compatibility_date": "2026-10-12",
   "compatibility_flags": ["nodejs_compat"],
 
-  // KV namespaces
-  // For local development: run the following commands and replace the IDs below
-  //   npx wrangler kv namespace create BANKING_KV
-  //   npx wrangler kv namespace create OAUTH_KV
-  // For Deploy to Cloudflare button: the system will auto-provision these
+  // KV namespaces - IDs omitted to enable wrangler auto-provisioning.
+  // Deploy to Cloudflare button creates namespaces named:
+  //   enable-banking-mcp-banking-kv and enable-banking-mcp-oauth-kv
+  //
+  // For local development, either:
+  //   1. Use `wrangler dev` which auto-creates local KV storage, OR
+  //   2. Create remote namespaces and add "id" fields:
+  //        npx wrangler kv namespace create BANKING_KV
+  //        npx wrangler kv namespace create OAUTH_KV
   "kv_namespaces": [
-    {
-      "binding": "BANKING_KV",
-      "id": "REPLACE_WITH_YOUR_BANKING_KV_ID"
-    },
-    {
-      "binding": "OAUTH_KV",
-      "id": "REPLACE_WITH_YOUR_OAUTH_KV_ID"
-    }
+    { "binding": "BANKING_KV" },
+    { "binding": "OAUTH_KV" }
   ],
 
   // Enable observability

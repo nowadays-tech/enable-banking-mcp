@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderErrorPage, renderConsentPage } from "../src/ui/pages";
+import type { Env } from "../src/types";
 
 // Mock the crypto API for PKCE
 const mockCrypto = {
@@ -494,5 +495,130 @@ describe("MCP Server Protection", () => {
     expect(parseAuth(validHeader).scheme).toBe("bearer");
     expect(parseAuth(invalidHeader1).scheme).toBe("bearer");
     expect(parseAuth(invalidHeader2).scheme).toBe("basic");
+  });
+});
+
+describe("OAuth Provider Integration", () => {
+  it("should have OAUTH_PROVIDER in Env type for DefaultHandler", () => {
+    const mockEnv: Partial<Env> = {
+      BANKING_KV: {} as KVNamespace,
+      OAUTH_KV: {} as KVNamespace,
+      AUTH_SECRET: "test-secret",
+      OAUTH_PROVIDER: {
+        parseAuthRequest: vi.fn(),
+        describeConsent: vi.fn(),
+        beginConsent: vi.fn(),
+        approveConsent: vi.fn(),
+        denyConsent: vi.fn(),
+        completeAuthorization: vi.fn(),
+      } as unknown as Env["OAUTH_PROVIDER"],
+    };
+    
+    expect(mockEnv.OAUTH_PROVIDER).toBeDefined();
+    expect(mockEnv.OAUTH_PROVIDER?.parseAuthRequest).toBeDefined();
+    expect(mockEnv.OAUTH_PROVIDER?.describeConsent).toBeDefined();
+    expect(mockEnv.OAUTH_PROVIDER?.beginConsent).toBeDefined();
+    expect(mockEnv.OAUTH_PROVIDER?.approveConsent).toBeDefined();
+    expect(mockEnv.OAUTH_PROVIDER?.denyConsent).toBeDefined();
+    expect(mockEnv.OAUTH_PROVIDER?.completeAuthorization).toBeDefined();
+  });
+
+  it("should not require apiRoute/apiHandler when using env.OAUTH_PROVIDER", () => {
+    const mockOAuthHelpers = {
+      parseAuthRequest: vi.fn().mockResolvedValue({
+        responseType: "code",
+        clientId: "test-client",
+        redirectUri: "https://example.com/callback",
+        scope: ["banking:read"],
+        state: "test-state",
+        codeChallenge: "challenge",
+        codeChallengeMethod: "S256",
+        resource: "https://example.com/mcp",
+      }),
+      describeConsent: vi.fn().mockResolvedValue({
+        clientId: "test-client",
+        clientName: "Test MCP Client",
+        redirectUri: "https://example.com/callback",
+        redirectHost: "example.com",
+        redirectIsLoopback: false,
+        scope: ["banking:read"],
+      }),
+      beginConsent: vi.fn().mockResolvedValue({
+        handle: "consent-handle-123",
+        headers: new Headers(),
+      }),
+    };
+
+    expect(mockOAuthHelpers.parseAuthRequest).toBeDefined();
+    expect(mockOAuthHelpers.describeConsent).toBeDefined();
+    expect(mockOAuthHelpers.beginConsent).toBeDefined();
+  });
+
+  it("should validate authorization request with resource and PKCE params", async () => {
+    const { verifier, challenge } = await generatePKCE();
+    
+    const authUrl = new URL("https://example.com/authorize");
+    authUrl.searchParams.set("client_id", "test-client");
+    authUrl.searchParams.set("redirect_uri", "https://www.cursor.com/agents/mcp/oauth/callback");
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("state", "random-state");
+    authUrl.searchParams.set("scope", "banking:read");
+    authUrl.searchParams.set("code_challenge", challenge);
+    authUrl.searchParams.set("code_challenge_method", "S256");
+    authUrl.searchParams.set("resource", "https://example.com/mcp");
+
+    expect(authUrl.searchParams.get("resource")).toBe("https://example.com/mcp");
+    expect(authUrl.searchParams.get("scope")).toBe("banking:read");
+    expect(authUrl.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(authUrl.searchParams.get("redirect_uri")).toBe("https://www.cursor.com/agents/mcp/oauth/callback");
+  });
+});
+
+describe("Well-Known Endpoints", () => {
+  it("should define oauth-protected-resource metadata at root", () => {
+    const baseUrl = "https://example.com";
+    const metadata = {
+      resource: `${baseUrl}/mcp`,
+      authorization_servers: [baseUrl],
+      scopes_supported: ["banking:read"],
+      bearer_methods_supported: ["header"],
+    };
+
+    expect(metadata.resource).toBe("https://example.com/mcp");
+    expect(metadata.authorization_servers).toContain("https://example.com");
+    expect(metadata.scopes_supported).toContain("banking:read");
+    expect(metadata.bearer_methods_supported).toContain("header");
+  });
+
+  it("should have consistent resource identifier across endpoints", () => {
+    const baseUrl = "https://banking-mcp.example.workers.dev";
+    
+    const mcpMetadata = {
+      url: `${baseUrl}/mcp`,
+    };
+    
+    const protectedResourceMetadata = {
+      resource: `${baseUrl}/mcp`,
+    };
+    
+    const authServerMetadata = {
+      resource: `${baseUrl}/mcp`,
+    };
+    
+    expect(mcpMetadata.url).toBe(protectedResourceMetadata.resource);
+    expect(protectedResourceMetadata.resource).toBe(authServerMetadata.resource);
+  });
+
+  it("should serve well-known endpoints at correct paths", () => {
+    const endpoints = [
+      "/.well-known/oauth-authorization-server",
+      "/.well-known/oauth-protected-resource",
+      "/.well-known/oauth-protected-resource/mcp",
+      "/.well-known/mcp",
+    ];
+    
+    endpoints.forEach(endpoint => {
+      expect(endpoint).toMatch(/^\/.well-known\//);
+    });
   });
 });

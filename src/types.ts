@@ -1,3 +1,5 @@
+import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
+
 export interface Env {
   BANKING_KV: KVNamespace;
   OAUTH_KV: KVNamespace;
@@ -5,6 +7,7 @@ export interface Env {
   ENABLE_BANKING_PRIVATE_KEY?: string;
   ENABLE_BANKING_API_BASE?: string;
   AUTH_SECRET: string;
+  OAUTH_PROVIDER: OAuthHelpers;
 }
 
 export interface StoredCredentials {

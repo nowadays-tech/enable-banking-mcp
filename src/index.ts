@@ -1,4 +1,4 @@
-import { OAuthProvider, AuthorizationError, CimdFetchError, getOAuthApi } from "@cloudflare/workers-oauth-provider";
+import { OAuthProvider, AuthorizationError, CimdFetchError } from "@cloudflare/workers-oauth-provider";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { createMcpHandler } from "agents/mcp/server";
 import type { Env, BankSession } from "./types";
@@ -164,20 +164,7 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
   }
 
   private async handleAuthorize(request: Request): Promise<Response> {
-    const baseUrl = getBaseUrl(request);
-    const oauthHelpers = getOAuthApi(
-      {
-        defaultHandler: { fetch: async () => new Response("") },
-        authorizeEndpoint: "/authorize",
-        tokenEndpoint: "/token",
-        clientRegistrationEndpoint: "/register",
-        scopesSupported: ["banking:read"],
-        resourceMetadata: {
-          resource: `${baseUrl}/mcp`,
-        },
-      },
-      this.env
-    );
+    const oauthHelpers = this.env.OAUTH_PROVIDER;
 
     try {
       const authRequest = await oauthHelpers.parseAuthRequest(request);
@@ -638,6 +625,15 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
           registration_url: `${baseUrl}/register`,
           scopes: ["banking:read"],
         },
+      });
+    }
+
+    if (path === "/.well-known/oauth-protected-resource") {
+      return jsonResponse({
+        resource: `${baseUrl}/mcp`,
+        authorization_servers: [baseUrl],
+        scopes_supported: ["banking:read"],
+        bearer_methods_supported: ["header"],
       });
     }
 

@@ -104,6 +104,32 @@ npm run deploy
 
 Then visit your worker URL to complete the setup wizard.
 
+## Updating
+
+The **Deploy to Cloudflare** button creates a copy of this repository in your own GitHub account, connected to Cloudflare Workers Builds. Pushes to your copy's `main` branch auto-deploy to your worker.
+
+To pull in updates from this upstream repository:
+
+```bash
+# Clone your copy (replace with your GitHub username)
+git clone https://github.com/YOUR-USERNAME/enable-banking-mcp.git
+cd enable-banking-mcp
+
+# Add upstream remote (only needed once)
+git remote add upstream https://github.com/nowadays-tech/enable-banking-mcp
+
+# Pull upstream changes (--allow-unrelated-histories only needed the first time)
+git pull upstream main --allow-unrelated-histories
+
+# Resolve any conflicts if prompted, then push to trigger auto-deploy
+git push
+```
+
+**Your data is preserved across updates:**
+- KV namespace data (bank sessions, OAuth tokens)
+- Stored Enable Banking credentials (encrypted in KV)
+- AUTH_SECRET and any other Cloudflare secrets
+
 ### Optional: Set Enable Banking Credentials via Environment
 
 Instead of using the setup wizard, you can set Enable Banking credentials as environment secrets. This is useful for CI/CD or if you prefer not to store encrypted credentials in KV:

@@ -42,10 +42,13 @@ That's it! The Enable Banking credentials are configured through the setup wizar
 After deployment, visit your worker URL (e.g., `https://enable-banking-mcp.YOUR-SUBDOMAIN.workers.dev/`):
 
 1. **Log in** with your AUTH_SECRET password
-2. **Step A**: Copy your redirect URL and create an Enable Banking app
+2. **Step A**: Copy your URLs and create an Enable Banking app
    - Go to [Enable Banking Control Panel](https://enablebanking.com/cp/) (link opens in new tab)
    - Create a free account if needed
-   - Create a new application with your redirect URL
+   - Create a new application with:
+     - **Redirect URL**: `https://YOUR-WORKER.workers.dev/callback`
+     - **Privacy URL**: `https://YOUR-WORKER.workers.dev/privacy`
+     - **Terms URL**: `https://YOUR-WORKER.workers.dev/terms`
    - Choose **Sandbox** (test data) or **Production** (real accounts)
    - The `.pem` private key downloads automatically when you generate it
 3. **Step B**: Enter your App ID and upload the `.pem` file

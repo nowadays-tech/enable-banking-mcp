@@ -32,6 +32,8 @@ import {
   renderDisconnectedPage,
   renderConsentPage,
   renderWizardPage,
+  renderPrivacyPage,
+  renderTermsPage,
   type WizardState,
 } from "./ui/pages";
 
@@ -276,6 +278,14 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
     const url = new URL(request.url);
     const path = url.pathname;
     const baseUrl = getBaseUrl(request);
+
+    if (path === "/privacy") {
+      return htmlResponse(renderPrivacyPage(url.host));
+    }
+
+    if (path === "/terms") {
+      return htmlResponse(renderTermsPage(url.host));
+    }
 
     if (path === "/login") {
       if (request.method === "GET") {

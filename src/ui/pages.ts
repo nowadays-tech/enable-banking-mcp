@@ -410,13 +410,35 @@ export function renderWizardPage(
             <button class="copy-btn" onclick="copyToClipboard('redirectUrl', this)">Copy</button>
           </div>
         </div>
+
+        <div class="card">
+          <h3>Privacy URL (required by Enable Banking)</h3>
+          <p style="margin-bottom: 0.5rem; font-size: 0.875rem;">Use this URL for the "Privacy URL of the application" field:</p>
+          <div class="copy-wrapper">
+            <div class="code-block">
+              <code id="privacyUrl">${escapeHtml(baseUrl)}/privacy</code>
+            </div>
+            <button class="copy-btn" onclick="copyToClipboard('privacyUrl', this)">Copy</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Terms URL (required by Enable Banking)</h3>
+          <p style="margin-bottom: 0.5rem; font-size: 0.875rem;">Use this URL for the "Terms URL of the application" field:</p>
+          <div class="copy-wrapper">
+            <div class="code-block">
+              <code id="termsUrl">${escapeHtml(baseUrl)}/terms</code>
+            </div>
+            <button class="copy-btn" onclick="copyToClipboard('termsUrl', this)">Copy</button>
+          </div>
+        </div>
         
         <ol class="instructions-list">
           <li data-step="1.">Go to <a href="https://enablebanking.com/cp/" target="_blank" rel="noopener">Enable Banking Control Panel</a> and sign in (or create a free account)</li>
           <li data-step="2.">Click <strong>Create Application</strong></li>
           <li data-step="3.">Enter a name (e.g., "My Banking MCP")</li>
           <li data-step="4.">Choose environment: <strong>Sandbox</strong> (test data) or <strong>Production</strong> (real accounts)</li>
-          <li data-step="5.">Paste the redirect URL from above</li>
+          <li data-step="5.">Paste the <strong>Redirect URL</strong>, <strong>Privacy URL</strong>, and <strong>Terms URL</strong> from above</li>
           <li data-step="6.">Click <strong>Generate Key</strong> - a <code>.pem</code> file will download automatically</li>
           <li data-step="7.">Note your <strong>Application ID</strong> shown after creation</li>
         </ol>
@@ -1003,6 +1025,190 @@ export function renderDisconnectedPage(): string {
 
     <a href="/setup" style="display: block; text-decoration: none;">
       <button>Connect a Bank</button>
+    </a>
+  </div>
+</body>
+</html>`;
+}
+
+const LAST_UPDATED_DATE = "2026-10-12";
+
+export function renderPrivacyPage(hostname: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy - Enable Banking MCP</title>
+  <style>${baseStyles}</style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔒 Privacy Policy</h1>
+    <p class="subtitle">How your data is handled by this self-hosted MCP server</p>
+
+    <div class="card">
+      <h3>Server Operator</h3>
+      <p style="margin-bottom: 0;">
+        This is a <strong>self-hosted, personal MCP server</strong> deployed at 
+        <code>${escapeHtml(hostname)}</code>. 
+        The operator is the individual who deployed this Worker to their own Cloudflare account.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>What Data Is Processed</h3>
+      <ul style="list-style: disc; padding-left: 1.5rem; margin: 0;">
+        <li style="margin-bottom: 0.5rem;"><strong>Bank connection details</strong>: Session identifiers and consent metadata from Enable Banking</li>
+        <li style="margin-bottom: 0.5rem;"><strong>Enable Banking credentials</strong>: Your application ID and private key (encrypted at rest using AES-256-GCM)</li>
+        <li style="margin-bottom: 0.5rem;"><strong>Account and transaction data</strong>: Fetched on-demand from your bank via Enable Banking when you or your AI assistant make requests</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>How Data Is Used</h3>
+      <p style="margin-bottom: 0;">
+        Your data is used <strong>solely to answer your own AI assistant requests</strong>. 
+        When you ask your AI assistant about your bank accounts, balances, or transactions, 
+        this server fetches the data from Enable Banking and returns it to your assistant.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Where Data Is Stored</h3>
+      <p style="margin-bottom: 0;">
+        All data is stored exclusively in the operator's own Cloudflare account using Cloudflare KV. 
+        <strong>No data is sent to or stored on any third-party servers</strong> beyond Cloudflare 
+        (for hosting) and Enable Banking (for bank API access).
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Data Sharing</h3>
+      <p style="margin-bottom: 0;">
+        <strong>Your data is never shared or sold.</strong> This is a personal tool for the operator's 
+        own use. There is no analytics, tracking, advertising, or data monetization of any kind.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>How to Revoke Access</h3>
+      <p>You can revoke access to your banking data at any time by:</p>
+      <ul style="list-style: decimal; padding-left: 1.5rem; margin: 0;">
+        <li style="margin-bottom: 0.5rem;"><strong>Disconnect in the UI</strong>: Visit the setup page and click "Disconnect" to remove the bank session</li>
+        <li style="margin-bottom: 0.5rem;"><strong>Revoke at your bank</strong>: Most banks allow you to revoke third-party access in your online banking settings</li>
+        <li style="margin-bottom: 0.5rem;"><strong>Revoke at Enable Banking</strong>: Contact Enable Banking or use their control panel to revoke consent</li>
+        <li style="margin-bottom: 0.5rem;"><strong>Delete the Worker/KV</strong>: Remove the Cloudflare Worker and associated KV namespaces to delete all stored data</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Open Source</h3>
+      <p style="margin-bottom: 0;">
+        This software is open source under the MIT License. You can inspect the code to verify 
+        exactly how your data is handled. No data is collected beyond what is described here.
+      </p>
+    </div>
+
+    <div class="info">
+      <strong>Last updated:</strong> ${escapeHtml(LAST_UPDATED_DATE)}<br>
+      <strong>Server:</strong> ${escapeHtml(hostname)}
+    </div>
+
+    <a href="/setup" style="display: inline-block; text-decoration: none; margin-top: 1rem;">
+      <button class="btn-secondary">← Back to Setup</button>
+    </a>
+  </div>
+</body>
+</html>`;
+}
+
+export function renderTermsPage(hostname: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terms of Service - Enable Banking MCP</title>
+  <style>${baseStyles}</style>
+</head>
+<body>
+  <div class="container">
+    <h1>📜 Terms of Service</h1>
+    <p class="subtitle">Terms for using this self-hosted MCP server</p>
+
+    <div class="card">
+      <h3>Service Description</h3>
+      <p style="margin-bottom: 0;">
+        This is a <strong>self-hosted, personal MCP (Model Context Protocol) server</strong> 
+        deployed at <code>${escapeHtml(hostname)}</code>. It connects your bank accounts 
+        to AI assistants via the Enable Banking PSD2 AIS API, allowing you to query your 
+        account information, balances, and transactions through your AI assistant.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Personal Use</h3>
+      <p style="margin-bottom: 0;">
+        This server is intended for <strong>personal use by the operator</strong> who deployed it. 
+        It is not a commercial service. The operator is responsible for their own use of the 
+        Enable Banking API and compliance with their bank's terms of service.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>No Warranty</h3>
+      <p style="margin-bottom: 0;">
+        <strong>THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.</strong> 
+        This includes, but is not limited to, warranties of merchantability, fitness for a particular 
+        purpose, and non-infringement. The entire risk as to the quality and performance of the 
+        software is with you.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Limitation of Liability</h3>
+      <p style="margin-bottom: 0;">
+        In no event shall the authors, contributors, or the operator be liable for any claim, 
+        damages, or other liability, whether in an action of contract, tort, or otherwise, 
+        arising from, out of, or in connection with the software or the use or other dealings 
+        in the software. <strong>You use this software at your own risk.</strong>
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Third-Party Services</h3>
+      <p style="margin-bottom: 0;">
+        This server relies on third-party services including <strong>Enable Banking</strong> 
+        (for bank API access) and <strong>Cloudflare</strong> (for hosting). Your use of 
+        these services is subject to their respective terms of service and privacy policies.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Data Handling</h3>
+      <p style="margin-bottom: 0;">
+        Please review the <a href="/privacy">Privacy Policy</a> for information about how your 
+        data is collected, used, and stored by this server.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Open Source License</h3>
+      <p style="margin-bottom: 0;">
+        This software is released under the <strong>MIT License</strong>. You are free to use, 
+        copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the software, 
+        subject to the conditions of the MIT License.
+      </p>
+    </div>
+
+    <div class="info">
+      <strong>Last updated:</strong> ${escapeHtml(LAST_UPDATED_DATE)}<br>
+      <strong>Server:</strong> ${escapeHtml(hostname)}
+    </div>
+
+    <a href="/setup" style="display: inline-block; text-decoration: none; margin-top: 1rem;">
+      <button class="btn-secondary">← Back to Setup</button>
     </a>
   </div>
 </body>

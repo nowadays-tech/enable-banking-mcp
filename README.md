@@ -2,8 +2,6 @@
 
 A personal remote MCP (Model Context Protocol) server that connects your bank accounts to AI assistants like Claude, ChatGPT, and Cursor via the [Enable Banking](https://enablebanking.com/) PSD2 AIS API.
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/nowadays-tech/enable-banking-mcp)
-
 ## Features
 
 - **5 MCP Tools**: `list_accounts`, `get_balances`, `get_transactions`, `search_transactions`, `summarize_spending`
@@ -12,6 +10,22 @@ A personal remote MCP (Model Context Protocol) server that connects your bank ac
 - **Guided Setup Wizard**: Step-by-step instructions right in the web UI
 - **One-Click Deploy**: Deploy to your own Cloudflare account in minutes
 - **Privacy-First**: Your data stays in your Cloudflare account, no third-party storage
+
+## Deployment Options
+
+### Option A: Set Up with an AI Agent
+
+Let an AI coding agent (Claude Code, Cursor, Codex) deploy this for you. Copy this prompt:
+
+> Clone https://github.com/nowadays-tech/enable-banking-mcp and follow AGENTS.md to deploy it to my Cloudflare account.
+
+The agent will guide you through Wrangler authentication, KV namespace creation, secret generation, and deployment. See [AGENTS.md](AGENTS.md) for the full instructions the agent follows.
+
+### Option B: One-Click Deploy
+
+Click the button below to deploy via the Cloudflare dashboard:
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/nowadays-tech/enable-banking-mcp)
 
 ## What the Deploy Page Asks For
 

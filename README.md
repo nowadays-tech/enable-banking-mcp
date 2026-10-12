@@ -13,6 +13,20 @@ A personal remote MCP (Model Context Protocol) server that connects your bank ac
 - **One-Click Deploy**: Deploy to your own Cloudflare account in minutes
 - **Privacy-First**: Your data stays in your Cloudflare account, no third-party storage
 
+## What the Deploy Page Asks For
+
+When you click the Deploy to Cloudflare button, you'll be prompted for these values:
+
+| Field | What to Enter |
+|-------|---------------|
+| **AUTH_SECRET** | A password you choose. Used to log in to the setup page, approve Claude/ChatGPT connections, and as the bearer token for Cursor. Use a long random value and save it in your password manager. |
+| **BANKING_KV** | KV namespace for bank connection data. Keep the default name. |
+| **OAUTH_KV** | KV namespace for OAuth tokens. Keep the default name. |
+
+The KV namespaces are auto-provisioned by Cloudflare—you don't need to create them manually.
+
+Enable Banking credentials (App ID and private key) are configured after deploy via the setup wizard at your worker URL.
+
 ## Quick Start
 
 ### 1. Deploy to Cloudflare
@@ -197,6 +211,23 @@ This server supports two authentication methods:
 
 ## Development
 
+### Local Environment Setup
+
+1. Copy `.dev.vars.example` to `.dev.vars` and fill in your values:
+   ```bash
+   cp .dev.vars.example .dev.vars
+   ```
+
+2. Create KV namespaces for local development:
+   ```bash
+   npx wrangler kv namespace create BANKING_KV
+   npx wrangler kv namespace create OAUTH_KV
+   ```
+
+3. Update `wrangler.jsonc` with the KV namespace IDs from the output above.
+
+### Commands
+
 ```bash
 # Install dependencies
 npm install
@@ -204,7 +235,7 @@ npm install
 # Generate types
 npm run types
 
-# Run locally (requires KV namespace IDs in wrangler.jsonc)
+# Run locally
 npm run dev
 
 # Run tests

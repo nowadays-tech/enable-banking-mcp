@@ -18,6 +18,19 @@
   "author": "",
   "license": "MIT",
   "type": "module",
+  "cloudflare": {
+    "bindings": {
+      "AUTH_SECRET": {
+        "description": "A password you choose. Used to log in to the setup page, approve Claude/ChatGPT connections, and as the bearer token for Cursor. Use a long random value and save it in your password manager."
+      },
+      "BANKING_KV": {
+        "description": "Stores your bank connection and encrypted Enable Banking key. Keep the default name."
+      },
+      "OAUTH_KV": {
+        "description": "Stores logins from Claude/ChatGPT. Keep the default name."
+      }
+    }
+  },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.3",
     "@modelcontextprotocol/server": "^2.0.0",

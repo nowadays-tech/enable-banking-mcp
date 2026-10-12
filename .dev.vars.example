@@ -1,15 +1,7 @@
-# Copy this file to .dev.vars and fill in your values
-
-# Your Enable Banking application ID from the control panel
-ENABLE_BANKING_APP_ID=your-app-id
-
-# Your RSA private key in PEM format (include the BEGIN/END lines)
-# For multi-line values in .dev.vars, use \n for newlines or keep it as a single line
-ENABLE_BANKING_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEvgIBA...\n-----END PRIVATE KEY-----"
+# Copy this file to .dev.vars and fill in your values.
+# The Deploy to Cloudflare button reads this file to decide which secrets to ask for,
+# so only AUTH_SECRET is listed here. Enable Banking credentials are added after deploy
+# in the setup wizard (or optionally as ENABLE_BANKING_APP_ID / ENABLE_BANKING_PRIVATE_KEY secrets).
 
 # Secret password for authentication (OAuth consent, web UI, and bearer token)
 AUTH_SECRET=your-strong-password-here
-
-# Note: You also need to create KV namespaces and update wrangler.jsonc:
-#   npx wrangler kv namespace create BANKING_KV
-#   npx wrangler kv namespace create OAUTH_KV

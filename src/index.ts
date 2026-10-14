@@ -17,6 +17,7 @@ import {
   getAllSessions,
   generateConnectionId,
   storeBaseUrl,
+  ensureBaseUrl,
   getConnectionId,
   getConnectionLabel,
 } from "./enable-banking/client";
@@ -859,6 +860,12 @@ export default {
       }
 
       if (path === "/mcp" || path.startsWith("/mcp/")) {
+        // Remember the public base URL so renew links work without visiting /setup first.
+        try {
+          await ensureBaseUrl(env.BANKING_KV, baseUrl);
+        } catch (error) {
+          console.error("Failed to store base URL:", error);
+        }
         const isBearerAuth = await validateBearerToken(request, env);
         if (isBearerAuth) {
           return createMcpHandlerForEnv(env)(request, env, ctx);

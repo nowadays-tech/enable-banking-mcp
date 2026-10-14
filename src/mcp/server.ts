@@ -10,6 +10,7 @@ import {
   buildConnectionInfo,
   buildExpiryWarning,
   getBaseUrl,
+  isExpiredSessionError,
 } from "../enable-banking/client";
 
 function renewUrlFor(baseUrl: string, connectionId: string): string {
@@ -107,6 +108,25 @@ export function createBankingMcpServer(env: Env) {
     name: "enable-banking-mcp",
     version: "1.0.0",
   });
+
+  // Map bank "expired/invalid session" API errors to a clear renew message.
+  const originalRegisterTool = server.registerTool.bind(server) as (...args: any[]) => any;
+  (server as any).registerTool = (name: string, config: unknown, handler: (args: any, extra: any) => any) =>
+    originalRegisterTool(name, config, async (args: any, extra: any) => {
+      try {
+        return await handler(args, extra);
+      } catch (error) {
+        if (!isExpiredSessionError(error)) throw error;
+        const accountId = args?.account_id as string | undefined;
+        const found = accountId ? await findConnectionByAccountId(env.BANKING_KV, accountId) : null;
+        const connectionId = found?.connectionId || "default";
+        const index = await getConnectionIndex(env.BANKING_KV);
+        const info = index?.connections.find((c) => c.id === connectionId);
+        const label =
+          info?.label || found?.session.label || (connectionId === "default" ? "Default" : connectionId);
+        return textContent(await expiredMessage(env, label, connectionId));
+      }
+    });
 
   const ok = async (text: string) =>
     textContent(appendExpiryWarning(text, await getExpiryWarning(env)));

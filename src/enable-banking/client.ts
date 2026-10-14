@@ -429,6 +429,14 @@ export async function storeBaseUrl(kv: KVNamespace, baseUrl: string): Promise<vo
   await kv.put("config:baseUrl", baseUrl);
 }
 
+/** Store the worker's public base URL if it is missing or changed. */
+export async function ensureBaseUrl(kv: KVNamespace, baseUrl: string): Promise<void> {
+  const current = await kv.get("config:baseUrl");
+  if (current !== baseUrl) {
+    await kv.put("config:baseUrl", baseUrl);
+  }
+}
+
 export async function getBaseUrl(kv: KVNamespace): Promise<string | null> {
   return await kv.get("config:baseUrl");
 }

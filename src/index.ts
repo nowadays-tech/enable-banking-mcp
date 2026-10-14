@@ -171,13 +171,20 @@ async function createSessionCookie(env: Env): Promise<string> {
   return `session=${sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${86400 * 7}`;
 }
 
-const createMcpHandlerForEnv = (env: Env) =>
-  createMcpHandler(() => createBankingMcpServer(env), {
-    allowedHostnames: ["*"],
-    corsOptions: {
-      origin: "*",
-    },
-  });
+// Note: allowedHostnames is an exact-match allowlist ("*" is NOT a wildcard and
+// rejects every request with 403 "Invalid Host"). Leaving it unset uses the
+// request's own hostname on *.workers.dev. Origin checks are disabled because
+// /mcp is protected by bearer tokens, and non-browser MCP clients may send
+// arbitrary Origin headers.
+export const MCP_HANDLER_OPTIONS = {
+  allowedOriginHostnames: "*" as const,
+  corsOptions: {
+    origin: "*",
+  },
+};
+
+export const createMcpHandlerForEnv = (env: Env) =>
+  createMcpHandler(() => createBankingMcpServer(env), MCP_HANDLER_OPTIONS);
 
 export class McpApiHandler extends WorkerEntrypoint<Env> {
   async fetch(request: Request): Promise<Response> {

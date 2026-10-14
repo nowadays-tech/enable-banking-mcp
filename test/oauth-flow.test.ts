@@ -59,14 +59,14 @@ describe("Error Page Rendering", () => {
     const html = renderErrorPage("Test Error", "Something went wrong");
     expect(html).toContain("Test Error");
     expect(html).toContain("Something went wrong");
-    expect(html).toContain("Back to Setup");
+    expect(html).toContain("Back to setup");
   });
 
   it("should render error page without retry button when showRetry is false", () => {
     const html = renderErrorPage("Test Error", "Something went wrong", false);
     expect(html).toContain("Test Error");
     expect(html).toContain("Something went wrong");
-    expect(html).not.toContain("Back to Setup");
+    expect(html).not.toContain("Back to setup");
   });
 
   it("should escape HTML in title and message", () => {
@@ -102,7 +102,7 @@ describe("Consent Page Rendering", () => {
 
   it("should not require password when already authenticated", () => {
     const html = renderConsentPage("Test Client", ["banking:read"], "handle123", false);
-    expect(html).toContain("already logged in");
+    expect(html).toContain("Signed in as the owner");
     expect(html).not.toContain('name="password"');
   });
 

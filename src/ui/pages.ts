@@ -1,4 +1,8 @@
 import type { BankSession, ASPSP } from "../types";
+import { baseStyles } from "./styles";
+import { escapeHtml, alert, flash, badge, consentBadge, card, page, pageHeader, field, icons } from "./components";
+
+export { baseStyles };
 
 const COUNTRY_NAMES: Record<string, string> = {
   AT: "Austria",
@@ -40,733 +44,6 @@ function getCountryDisplayName(code: string): string {
   return name ? `${name} (${code})` : code;
 }
 
-const baseStyles = `
-  :root {
-    --background: #ffffff;
-    --foreground: #09090b;
-    --card: #ffffff;
-    --card-foreground: #09090b;
-    --muted: #f4f4f5;
-    --muted-foreground: #71717a;
-    --border: #e4e4e7;
-    --input: #e4e4e7;
-    --primary: #18181b;
-    --primary-foreground: #fafafa;
-    --secondary: #f4f4f5;
-    --secondary-foreground: #18181b;
-    --destructive: #ef4444;
-    --destructive-foreground: #fafafa;
-    --success: #22c55e;
-    --success-foreground: #fafafa;
-    --ring: #18181b;
-    --ring-offset: #ffffff;
-    --radius: 0.375rem;
-  }
-  
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --background: #09090b;
-      --foreground: #fafafa;
-      --card: #18181b;
-      --card-foreground: #fafafa;
-      --muted: #27272a;
-      --muted-foreground: #a1a1aa;
-      --border: #27272a;
-      --input: #27272a;
-      --primary: #fafafa;
-      --primary-foreground: #18181b;
-      --secondary: #27272a;
-      --secondary-foreground: #fafafa;
-      --destructive: #dc2626;
-      --destructive-foreground: #fafafa;
-      --success: #16a34a;
-      --success-foreground: #fafafa;
-      --ring: #d4d4d8;
-      --ring-offset: #09090b;
-    }
-  }
-  
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  
-  body {
-    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    background: var(--background);
-    min-height: 100vh;
-    padding: 2rem 1rem;
-    color: var(--foreground);
-    line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-  }
-  
-  .container {
-    max-width: 640px;
-    margin: 0 auto;
-  }
-  
-  .page-header {
-    margin-bottom: 1.5rem;
-  }
-  
-  h1 {
-    font-size: 1.5rem;
-    font-weight: 600;
-    letter-spacing: -0.025em;
-    color: var(--foreground);
-    margin-bottom: 0.25rem;
-  }
-  
-  h2 {
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: var(--foreground);
-    margin-bottom: 0.5rem;
-  }
-  
-  h3 {
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: var(--foreground);
-    margin-bottom: 0.5rem;
-  }
-  
-  p {
-    color: var(--muted-foreground);
-    font-size: 0.875rem;
-    margin-bottom: 0.5rem;
-  }
-  
-  .subtitle {
-    font-size: 0.875rem;
-    color: var(--muted-foreground);
-  }
-  
-  label {
-    display: block;
-    font-size: 0.875rem;
-    font-weight: 500;
-    margin-bottom: 0.5rem;
-    color: var(--foreground);
-  }
-  
-  select, input[type="text"], input[type="password"], textarea {
-    width: 100%;
-    height: 2.5rem;
-    padding: 0 0.75rem;
-    background: var(--background);
-    border: 1px solid var(--input);
-    border-radius: var(--radius);
-    font-size: 0.875rem;
-    color: var(--foreground);
-    transition: border-color 0.15s, box-shadow 0.15s;
-  }
-  
-  textarea {
-    height: auto;
-    padding: 0.5rem 0.75rem;
-  }
-  
-  select:focus, input:focus, textarea:focus {
-    outline: none;
-    border-color: var(--ring);
-    box-shadow: 0 0 0 2px var(--ring-offset), 0 0 0 4px color-mix(in srgb, var(--ring) 30%, transparent);
-  }
-  
-  select::placeholder, input::placeholder {
-    color: var(--muted-foreground);
-  }
-  
-  .field-group {
-    margin-bottom: 1rem;
-  }
-  
-  .section-group {
-    margin-bottom: 1.5rem;
-  }
-  
-  button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    height: 2.5rem;
-    padding: 0 1rem;
-    background: var(--primary);
-    color: var(--primary-foreground);
-    border: none;
-    border-radius: var(--radius);
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: opacity 0.15s, background-color 0.15s;
-  }
-  
-  button:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 2px var(--ring-offset), 0 0 0 4px color-mix(in srgb, var(--ring) 30%, transparent);
-  }
-  
-  button:hover:not(:disabled) {
-    opacity: 0.9;
-  }
-  
-  button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  
-  .btn-full { width: 100%; }
-  
-  .btn-secondary {
-    background: var(--background);
-    color: var(--foreground);
-    border: 1px solid var(--border);
-  }
-  
-  .btn-secondary:hover:not(:disabled) {
-    background: var(--muted);
-    opacity: 1;
-  }
-  
-  .btn-destructive {
-    background: var(--destructive);
-    color: var(--destructive-foreground);
-  }
-  
-  .btn-sm {
-    height: 2rem;
-    padding: 0 0.75rem;
-    font-size: 0.8125rem;
-  }
-  
-  .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1.5rem;
-    margin-bottom: 0.5rem;
-    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  }
-  
-  .card h3 {
-    margin-bottom: 0.25rem;
-  }
-  
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.125rem 0.625rem;
-    border-radius: 9999px;
-    font-size: 0.75rem;
-    font-weight: 500;
-    border: 1px solid;
-  }
-  
-  .badge-success {
-    background: color-mix(in srgb, var(--success) 10%, transparent);
-    color: var(--success);
-    border-color: color-mix(in srgb, var(--success) 25%, transparent);
-  }
-  
-  .badge-warning {
-    background: #fef3c7;
-    color: #92400e;
-    border-color: #fde68a;
-  }
-  
-  @media (prefers-color-scheme: dark) {
-    .badge-warning {
-      background: #422006;
-      color: #fcd34d;
-      border-color: #854d0e;
-    }
-  }
-  
-  .badge-error {
-    background: color-mix(in srgb, var(--destructive) 10%, transparent);
-    color: var(--destructive);
-    border-color: color-mix(in srgb, var(--destructive) 25%, transparent);
-  }
-  
-  .badge-muted {
-    background: transparent;
-    color: var(--muted-foreground);
-    border-color: var(--border);
-  }
-  
-  .badge-outline {
-    background: transparent;
-    color: var(--muted-foreground);
-    border-color: var(--border);
-  }
-  
-  .info-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 0.5rem 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 0.875rem;
-  }
-  
-  .info-row:last-child { border-bottom: none; }
-  .info-label { color: var(--muted-foreground); }
-  .info-value { font-weight: 500; color: var(--foreground); }
-  
-  .account-list { margin-top: 0.75rem; }
-  
-  .account-item {
-    background: var(--muted);
-    border-radius: var(--radius);
-    padding: 0.75rem;
-    margin-bottom: 0.5rem;
-  }
-  
-  .account-name {
-    font-weight: 500;
-    font-size: 0.875rem;
-    color: var(--foreground);
-  }
-  
-  .account-iban {
-    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-    color: var(--muted-foreground);
-    font-size: 0.8125rem;
-  }
-  
-  .alert {
-    padding: 0.75rem 1rem;
-    border-radius: var(--radius);
-    margin-bottom: 1rem;
-    font-size: 0.875rem;
-    border: 1px solid transparent;
-  }
-  
-  .alert-error {
-    background: color-mix(in srgb, var(--destructive) 10%, transparent);
-    color: var(--destructive);
-    border-color: color-mix(in srgb, var(--destructive) 20%, transparent);
-  }
-  
-  .alert-success {
-    background: color-mix(in srgb, var(--success) 10%, transparent);
-    color: var(--success);
-    border-color: color-mix(in srgb, var(--success) 20%, transparent);
-  }
-  
-  .alert-warning {
-    background: #fef3c7;
-    color: #92400e;
-    border-color: #fde68a;
-  }
-  
-  @media (prefers-color-scheme: dark) {
-    .alert-warning {
-      background: #422006;
-      color: #fcd34d;
-      border-color: #854d0e;
-    }
-  }
-  
-  .alert-info {
-    background: var(--muted);
-    color: var(--muted-foreground);
-    border-color: var(--border);
-  }
-  
-  .loading {
-    text-align: center;
-    padding: 1.5rem;
-    color: var(--muted-foreground);
-    font-size: 0.875rem;
-  }
-  
-  .code-block {
-    background: var(--muted);
-    border: 1px solid var(--border);
-    padding: 0.75rem;
-    border-radius: var(--radius);
-    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-    font-size: 0.8125rem;
-    word-break: break-all;
-    margin: 0.5rem 0;
-    position: relative;
-    color: var(--foreground);
-  }
-  
-  .code-block code {
-    color: var(--foreground);
-  }
-  
-  .copy-wrapper {
-    position: relative;
-  }
-  
-  .copy-btn {
-    position: absolute;
-    top: 0.375rem;
-    right: 0.375rem;
-    height: 1.75rem;
-    padding: 0 0.5rem;
-    font-size: 0.75rem;
-    background: var(--secondary);
-    color: var(--secondary-foreground);
-    border: 1px solid var(--border);
-  }
-  
-  .copy-btn:hover:not(:disabled) {
-    background: var(--muted);
-  }
-  
-  .divider {
-    border-top: 1px solid var(--border);
-    margin: 1.5rem 0;
-  }
-  
-  /* Command/Combobox style bank list container */
-  .banks-container {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
-    margin-top: 0.5rem;
-  }
-  
-  .banks-list {
-    max-height: 240px;
-    overflow-y: auto;
-  }
-  
-  .bank-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.5rem 0.75rem;
-    cursor: pointer;
-    transition: background-color 0.1s;
-    background: transparent;
-    border: none;
-    border-bottom: 1px solid transparent;
-  }
-  
-  .bank-item:hover {
-    background: var(--muted);
-  }
-  
-  .bank-item.selected {
-    background: var(--muted);
-  }
-  
-  .bank-item:last-child {
-    border-bottom: none;
-  }
-  
-  .bank-item-content {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  
-  .bank-name {
-    font-weight: 400;
-    font-size: 0.875rem;
-    color: var(--foreground);
-  }
-  
-  .bank-item.selected .bank-name {
-    font-weight: 500;
-  }
-  
-  .bank-check {
-    width: 1rem;
-    height: 1rem;
-    color: var(--foreground);
-    opacity: 0;
-    flex-shrink: 0;
-  }
-  
-  .bank-item.selected .bank-check {
-    opacity: 1;
-  }
-  
-  .bank-sandbox-badge {
-    font-size: 0.75rem;
-    color: var(--muted-foreground);
-    padding: 0.125rem 0.375rem;
-    background: var(--muted);
-    border-radius: var(--radius);
-  }
-  
-  .submit-section {
-    margin-top: 1rem;
-  }
-  
-  .hidden { display: none; }
-  
-  .connection-card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1rem;
-    margin-bottom: 0.75rem;
-  }
-  
-  .connection-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 0.5rem;
-  }
-  
-  .connection-title {
-    font-weight: 500;
-    font-size: 0.9375rem;
-    color: var(--foreground);
-    margin: 0;
-  }
-  
-  .connection-subtitle {
-    font-size: 0.8125rem;
-    color: var(--muted-foreground);
-    margin-top: 0.125rem;
-  }
-  
-  .connection-meta {
-    display: flex;
-    gap: 0.75rem;
-    font-size: 0.8125rem;
-    color: var(--muted-foreground);
-    margin-top: 0.5rem;
-  }
-  
-  .connection-actions {
-    display: flex;
-    gap: 0.375rem;
-  }
-  
-  .psu-type-selector {
-    display: flex;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-  }
-  
-  .psu-type-btn {
-    flex: 1;
-    padding: 0.75rem;
-    border: 1px solid var(--border);
-    background: var(--background);
-    border-radius: var(--radius);
-    cursor: pointer;
-    text-align: center;
-    transition: all 0.15s;
-  }
-  
-  .psu-type-btn:hover {
-    border-color: var(--ring);
-  }
-  
-  .psu-type-btn.selected {
-    border-color: var(--foreground);
-    background: var(--muted);
-  }
-  
-  .psu-type-label {
-    font-weight: 500;
-    font-size: 0.875rem;
-    color: var(--foreground);
-  }
-  
-  .psu-type-desc {
-    font-size: 0.75rem;
-    color: var(--muted-foreground);
-    margin-top: 0.25rem;
-  }
-  
-  .add-connection-btn {
-    width: 100%;
-    padding: 0.75rem;
-    background: var(--muted);
-    border: 1px dashed var(--border);
-    border-radius: var(--radius);
-    color: var(--muted-foreground);
-    font-size: 0.875rem;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  
-  .add-connection-btn:hover {
-    border-color: var(--ring);
-    border-style: solid;
-    background: var(--card);
-    color: var(--foreground);
-  }
-  
-  /* Step content cards */
-  .step-content {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1.5rem;
-    margin-bottom: 1.5rem;
-    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  }
-  
-  .step-content.active {
-    border-color: var(--ring);
-  }
-  
-  .step-content.completed {
-    border-color: color-mix(in srgb, var(--success) 50%, transparent);
-  }
-  
-  .step-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 1rem;
-  }
-  
-  .step-title {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-  }
-  
-  .step-number {
-    width: 1.25rem;
-    height: 1.25rem;
-    border-radius: 9999px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 500;
-    font-size: 0.6875rem;
-    background: var(--muted);
-    color: var(--muted-foreground);
-    flex-shrink: 0;
-  }
-  
-  .step-content.active .step-number {
-    background: var(--foreground);
-    color: var(--background);
-  }
-  
-  .step-content.completed .step-number {
-    background: color-mix(in srgb, var(--success) 15%, transparent);
-    color: var(--success);
-  }
-  
-  .instructions-list {
-    list-style: none;
-    padding: 0;
-    margin: 0.75rem 0;
-  }
-  
-  .instructions-list li {
-    padding: 0.375rem 0;
-    padding-left: 1.25rem;
-    position: relative;
-    color: var(--muted-foreground);
-    font-size: 0.875rem;
-  }
-  
-  .instructions-list li::before {
-    content: attr(data-step);
-    position: absolute;
-    left: 0;
-    color: var(--foreground);
-    font-weight: 500;
-  }
-  
-  .file-upload {
-    border: 1px dashed var(--border);
-    border-radius: var(--radius);
-    padding: 1.25rem;
-    text-align: center;
-    margin-bottom: 0.5rem;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  
-  .file-upload:hover {
-    border-color: var(--ring);
-    background: var(--muted);
-  }
-  
-  .file-upload.has-file {
-    border-color: var(--success);
-    border-style: solid;
-    background: color-mix(in srgb, var(--success) 5%, transparent);
-  }
-  
-  .file-upload input[type="file"] {
-    display: none;
-  }
-  
-  .file-upload-icon {
-    font-size: 1.5rem;
-    margin-bottom: 0.375rem;
-    opacity: 0.5;
-  }
-  
-  .file-upload-text {
-    color: var(--muted-foreground);
-    font-size: 0.875rem;
-  }
-  
-  .file-upload-name {
-    color: var(--success);
-    font-weight: 500;
-    margin-top: 0.375rem;
-    font-size: 0.875rem;
-  }
-  
-  .validation-result {
-    padding: 0.75rem;
-    border-radius: var(--radius);
-    margin-top: 0.5rem;
-    font-size: 0.875rem;
-  }
-  
-  .validation-success {
-    background: color-mix(in srgb, var(--success) 10%, transparent);
-    color: var(--success);
-  }
-  
-  .validation-error {
-    background: color-mix(in srgb, var(--destructive) 10%, transparent);
-    color: var(--destructive);
-  }
-  
-  .env-notice {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.625rem 0.75rem;
-    background: var(--muted);
-    border-radius: var(--radius);
-    color: var(--muted-foreground);
-    font-size: 0.8125rem;
-    margin-bottom: 0.75rem;
-  }
-  
-  .btn-row {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 0.75rem;
-  }
-  
-  .btn-row button {
-    flex: 1;
-  }
-  
-  a {
-    color: var(--foreground);
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-  
-  a:hover {
-    opacity: 0.8;
-  }
-  
-`;
 
 export interface WizardConnection {
   id: string;
@@ -789,14 +66,6 @@ export interface WizardState {
   connections?: WizardConnection[];
 }
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
 
 export function renderWizardPage(
   baseUrl: string,
@@ -896,10 +165,10 @@ export function renderWizardPage(
             <span class="info-value">${escapeHtml(state.appId || '')}</span>
           </div>
           <div class="btn-row">
-            <button class="btn-secondary btn-sm" onclick="document.getElementById('credentialsSection').classList.toggle('hidden')">Update Credentials</button>
-            <form action="/api/credentials" method="POST" style="flex: 1;">
+            <button class="btn-outline btn-sm" onclick="document.getElementById('credentialsSection').classList.toggle('hidden')">Update Credentials</button>
+            <form action="/api/credentials" method="POST">
               <input type="hidden" name="action" value="delete" />
-              <button type="submit" class="btn-destructive btn-sm btn-full" onclick="return confirm('Remove stored credentials?')">Remove</button>
+              <button type="submit" class="btn-destructive btn-sm" onclick="return confirm('Remove stored credentials?')">Remove credentials</button>
             </form>
           </div>
         `}
@@ -964,7 +233,7 @@ export function renderWizardPage(
             checkFormValid();
             
             // Validate PEM format
-            validationResult.innerHTML = '<div class="validation-result" style="background: #e2e8f0; color: #718096;">Validating private key...</div>';
+            validationResult.innerHTML = '<div class="validation-result">Validating private key...</div>';
             
             try {
               const res = await fetch('/api/credentials/validate', {
@@ -998,58 +267,46 @@ export function renderWizardPage(
       </div>
       
       ${state.hasBankSession && state.connections && state.connections.length > 0 ? `
+        <div class="stack-sm">
         ${state.connections.map((conn) => {
           const expiryDate = new Date(conn.validUntil);
-          const now = new Date();
-          const daysUntilExpiry = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-          const isExpired = daysUntilExpiry <= 0;
-          const isExpiringSoon = daysUntilExpiry > 0 && daysUntilExpiry <= 7;
-          const statusBadge = isExpired
-            ? '<span class="badge badge-error">Expired</span>'
-            : isExpiringSoon
-              ? '<span class="badge badge-warning">Expiring Soon</span>'
-              : '<span class="badge badge-success">Active</span>';
+          const isExpired = expiryDate.getTime() <= Date.now();
           return `
         <div class="connection-card">
           <div class="connection-header">
             <div>
               <h4 class="connection-title">${escapeHtml(conn.label)}</h4>
-              <div class="connection-subtitle">${escapeHtml(conn.aspspName)} · ${conn.psuType === 'business' ? 'Business' : 'Personal'}</div>
+              <div class="connection-subtitle">${escapeHtml(conn.aspspName)} · ${conn.psuType === 'business' ? 'Business' : 'Personal'} · ${conn.accountCount} account${conn.accountCount !== 1 ? 's' : ''}</div>
             </div>
-            <div class="connection-actions">
-              ${statusBadge}
-            </div>
+            <div class="connection-actions">${consentBadge(conn.validUntil)}</div>
           </div>
-          <div class="connection-meta">
-            <span>${conn.accountCount} account${conn.accountCount !== 1 ? 's' : ''}</span>
-            <span>·</span>
-            <span>${isExpired ? 'Expired' : `Expires ${expiryDate.toLocaleDateString()}`}</span>
-          </div>
-          <form action="/connections/rename" method="POST" class="rename-form" style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
+          <div class="connection-meta">${isExpired ? 'Consent expired' : `Consent valid until ${escapeHtml(expiryDate.toLocaleDateString('en-GB'))}`}</div>
+          <form action="/connections/rename" method="POST" class="rename-form">
             <input type="hidden" name="connection_id" value="${escapeHtml(conn.id)}" />
-            <input type="text" name="label" value="${escapeHtml(conn.label)}" maxlength="80" required aria-label="Connection name" style="flex: 1; margin: 0;" />
-            <button type="submit" class="btn-secondary btn-sm">Rename</button>
+            <input type="text" name="label" value="${escapeHtml(conn.label)}" maxlength="80" required aria-label="Connection name" />
+            <button type="submit" class="btn-outline btn-sm">Rename</button>
           </form>
-          <div class="btn-row" style="margin-top: 0.75rem;">
-            <form action="/auth/start" method="POST" style="flex: 1;">
+          <div class="btn-row">
+            <form action="/auth/start" method="POST">
               <input type="hidden" name="connection_id" value="${escapeHtml(conn.id)}" />
               <input type="hidden" name="label" value="${escapeHtml(conn.label)}" />
               <input type="hidden" name="psu_type" value="${escapeHtml(conn.psuType)}" />
               <input type="hidden" name="aspsp_id" value="${escapeHtml(conn.aspspName)}" />
               <input type="hidden" name="aspsp_name" value="${escapeHtml(conn.aspspName)}" />
               <input type="hidden" name="country" value="${escapeHtml(conn.aspspCountry)}" />
-              <button type="submit" class="btn-secondary btn-sm btn-full">${isExpired ? 'Reconnect' : 'Renew'}</button>
+              <button type="submit" class="btn-secondary btn-sm">${isExpired ? 'Reconnect' : 'Renew consent'}</button>
             </form>
-            <form action="/disconnect" method="POST" style="flex: 1;">
+            <form action="/disconnect" method="POST">
               <input type="hidden" name="connection_id" value="${escapeHtml(conn.id)}" />
-              <button type="submit" class="btn-destructive btn-sm btn-full" onclick="return confirm('Disconnect ${escapeHtml(conn.label)}?')">Disconnect</button>
+              <button type="submit" class="btn-ghost btn-sm" style="color: var(--destructive);" onclick="return confirm('Disconnect ${escapeHtml(conn.label)}?')">Disconnect</button>
             </form>
           </div>
         </div>`;
         }).join('')}
+        </div>
         
-        <button type="button" class="add-connection-btn" onclick="document.getElementById('addConnectionForm').classList.toggle('hidden')">
-          + Add another bank
+        <button type="button" class="add-connection-btn mt-2" onclick="document.getElementById('addConnectionForm').classList.toggle('hidden')">
+          ${icons.plus} Add another bank
         </button>
       ` : ''}
       
@@ -1061,7 +318,7 @@ export function renderWizardPage(
             <div class="field-group">
               <label for="label">Connection Label</label>
               <input type="text" id="label" name="label" placeholder="e.g., Personal, Business, Joint Account" />
-              <p style="font-size: 0.75rem; color: var(--muted-foreground); margin-top: 0.25rem;">Give this connection a name to identify it easily</p>
+              <p class="ui-field-description">Give this connection a name to identify it easily</p>
             </div>
             
             <div class="field-group">
@@ -1089,8 +346,8 @@ export function renderWizardPage(
 
             <div id="bankSection" class="hidden section-group">
               <label for="bankSearch">Bank</label>
-              <input type="text" id="bankSearch" placeholder="Search banks..." style="margin-bottom: 0;" />
-              <div id="psuTypeFilter" class="alert alert-info hidden" style="margin: 0.5rem 0; padding: 0.5rem 0.75rem; font-size: 0.8125rem;"></div>
+              <input type="text" id="bankSearch" placeholder="Search banks..." />
+              <div id="psuTypeFilter" class="alert alert-info hidden mt-2" style="margin-bottom: 0;"></div>
               <div class="banks-container">
                 <div id="banksList" class="banks-list"></div>
               </div>
@@ -1263,7 +520,7 @@ export function renderWizardPage(
           <h3>Cursor / Claude Code (Bearer Token)</h3>
           <p style="font-size: 0.875rem; margin-bottom: 0.5rem;">Add to your MCP settings with your AUTH_SECRET as the bearer token:</p>
           <div class="copy-wrapper">
-            <div class="code-block" style="font-size: 0.75rem; white-space: pre; overflow-x: auto;">
+            <div class="code-block pre">
 <code id="cursorConfig">{
   "mcpServers": {
     "banking": {
@@ -1279,11 +536,11 @@ export function renderWizardPage(
           </div>
         </div>
         
-        <p style="font-size: 0.875rem; color: #718096;">
-          <strong>Available tools:</strong> list_accounts, get_balances, get_transactions, search_transactions, summarize_spending
+        <p class="text-muted">
+          <strong>Available tools:</strong> list_connections, connection_status, list_accounts, get_balances, get_transactions, search_transactions, summarize_spending, add_bank_connection
         </p>
       ` : `
-        <p style="color: #a0aec0;">Connect your bank first to get your MCP server URLs.</p>
+        <p class="text-muted">Connect your bank first to get your MCP server URLs.</p>
       `}
     </div>
   </div>
@@ -1330,7 +587,7 @@ export function renderSetupPage(countries: string[]): string {
 
       <div id="bankSection" class="hidden section-group">
         <label for="bankSearch">Bank</label>
-        <input type="text" id="bankSearch" placeholder="Search banks..." style="margin-bottom: 0;" />
+        <input type="text" id="bankSearch" placeholder="Search banks..." />
         <div class="banks-container">
           <div id="banksList" class="banks-list"></div>
         </div>
@@ -1528,80 +785,47 @@ export function renderConnectedPage(
 }
 
 export function renderCallbackSuccessPage(session: BankSession, isRenewal?: boolean, returnTo?: string): string {
-  const title = isRenewal ? "Consent Renewed Successfully" : "Bank Connected Successfully";
-  const message = isRenewal 
-    ? `Your ${escapeHtml(session.aspspName)} connection has been renewed.`
-    : `Your ${escapeHtml(session.aspspName)} account is now linked.`;
-  const buttonText = isRenewal ? "Back to Setup" : "View Connected Accounts";
-  
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Enable Banking MCP - Success</title>
-  <style>${baseStyles}</style>
-</head>
-<body>
-  <div class="container">
-    <div class="alert alert-success">
-      <strong>${title}</strong>
-      <p style="margin: 0.25rem 0 0 0;">${message}</p>
-    </div>
-
-    <p>Found ${session.accounts.length} account(s). You can now use the MCP tools with your AI assistant.</p>
-    
-    ${session.label ? `<p style="font-size: 0.875rem; color: var(--muted-foreground);">Connection label: <strong>${escapeHtml(session.label)}</strong></p>` : ""}
-
-    ${returnTo ? `
-    <a href="${escapeHtml(returnTo)}" style="display: block; text-decoration: none;">
-      <button class="btn-full">Continue authorization</button>
-    </a>
-    <p style="font-size: 0.8125rem; color: var(--muted-foreground); text-align: center;">The new connection can now be ticked on the authorization page.</p>
-    ` : `
-    <a href="/setup" style="display: block; text-decoration: none;">
-      <button class="btn-full">${buttonText}</button>
-    </a>`}
-  </div>
-</body>
-</html>`;
+  const title = isRenewal ? "Consent renewed" : "Bank connected";
+  const message = isRenewal
+    ? `Your ${session.aspspName} connection has been renewed.`
+    : `Your ${session.aspspName} account is now linked.`;
+  const footer = returnTo
+    ? `<a class="btn" href="${escapeHtml(returnTo)}">Continue authorization ${icons.arrowRight}</a>`
+    : `<a class="btn" href="/setup">${isRenewal ? "Back to setup" : "View connections"}</a>`;
+  return page({
+    title,
+    narrow: true,
+    body: card({
+      title,
+      description: message,
+      action: badge(`${session.accounts.length} account${session.accounts.length !== 1 ? "s" : ""}`, "success"),
+      content: `
+        <div class="info-row"><span class="info-label">Bank</span><span class="info-value">${escapeHtml(session.aspspName)}</span></div>
+        ${session.label ? `<div class="info-row"><span class="info-label">Label</span><span class="info-value">${escapeHtml(session.label)}</span></div>` : ""}
+        <div class="info-row"><span class="info-label">Consent valid until</span><span class="info-value">${escapeHtml(new Date(session.consentValidUntil).toLocaleDateString("en-GB"))}</span></div>
+        ${returnTo ? `<p class="ui-field-description mt-4">The new connection can now be ticked on the authorization page.</p>` : ""}`,
+      footer,
+    }),
+  });
 }
 
 export function renderCallbackErrorPage(error: string, details?: string): string {
-  const detailsSection = details ? `
-    <details style="margin-top: 1rem; font-size: 0.8125rem;">
-      <summary style="cursor: pointer; color: var(--muted-foreground); user-select: none;">
-        Show technical details
-      </summary>
-      <pre style="margin-top: 0.5rem; padding: 0.75rem; background: var(--muted); border-radius: var(--radius); overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 0.75rem; color: var(--muted-foreground);">${escapeHtml(details)}</pre>
-    </details>
-  ` : "";
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Enable Banking MCP - Error</title>
-  <style>${baseStyles}</style>
-</head>
-<body>
-  <div class="container">
-    <div class="alert alert-error">
-      <strong>Connection Failed</strong>
-      <p style="margin: 0.25rem 0 0 0;">${escapeHtml(error)}</p>
-    </div>
-
-    <p>Please try connecting your bank again. If the problem persists, check that your Enable Banking credentials are configured correctly.</p>
-    
-    ${detailsSection}
-
-    <a href="/setup" style="display: block; text-decoration: none; margin-top: 1rem;">
-      <button class="btn-full">Try Again</button>
-    </a>
-  </div>
-</body>
-</html>`;
+  const detailsSection = details
+    ? `<details class="mt-4">
+        <summary class="text-muted text-xs" style="cursor: pointer;">Show technical details</summary>
+        <pre class="code-block pre mt-2">${escapeHtml(details)}</pre>
+      </details>`
+    : "";
+  return page({
+    title: "Error",
+    narrow: true,
+    body: card({
+      title: "Something went wrong",
+      description: "Please try again. If it keeps failing, check your Enable Banking credentials on the setup page.",
+      content: alert({ variant: "destructive", description: error, inline: false }) + detailsSection,
+      footer: `<a class="btn" href="/setup">Back to setup</a>`,
+    }),
+  });
 }
 
 export function renderLoginPage(
@@ -1609,64 +833,36 @@ export function renderLoginPage(
   returnUrl?: string,
   opts: { magicLinkEnabled?: boolean; notice?: string } = {}
 ): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Enable Banking MCP - Login</title>
-  <style>${baseStyles}</style>
-</head>
-<body>
-  <div class="container">
-    <div class="page-header">
-      <h1>Login Required</h1>
-      <p class="subtitle">Enter your password to access the banking MCP server</p>
-    </div>
-
-    ${error ? `<div class="alert alert-error">${escapeHtml(error)}</div>` : ""}
-    ${opts.notice ? `<div class="alert alert-success">${escapeHtml(opts.notice)}</div>` : ""}
-
+  return page({
+    title: "Log in",
+    narrow: true,
+    body: `
+    ${flash(error, opts.notice)}
     <form method="POST">
-      ${returnUrl ? `<input type="hidden" name="return" value="${escapeHtml(returnUrl)}" />` : ""}
-      <label for="password">Password</label>
-      <input type="password" id="password" name="password" required autofocus />
-      <button type="submit" class="btn-full">Login</button>
+      ${card({
+        title: "Log in",
+        description: "Enter your password to access your banking MCP server.",
+        content: `
+          ${returnUrl ? `<input type="hidden" name="return" value="${escapeHtml(returnUrl)}" />` : ""}
+          ${field({ id: "password", label: "Password", control: `<input type="password" id="password" name="password" required autofocus autocomplete="current-password" />`, description: "Set via the AUTH_SECRET secret." })}`,
+        footer: `<button type="submit" class="btn-full">Log in</button>`,
+      })}
       ${opts.magicLinkEnabled ? `
-      <button type="submit" name="action" value="magic" formnovalidate class="btn-secondary btn-full" style="margin-top: 0.5rem;">Email me a login link</button>
-      ` : ""}
-    </form>
-
-    <p style="font-size: 0.8125rem; margin-top: 1rem; text-align: center; color: var(--muted-foreground);">
-      This is your personal banking MCP server. The password is set via the AUTH_SECRET environment variable.
-    </p>
-  </div>
-</body>
-</html>`;
+      <button type="submit" name="action" value="magic" formnovalidate class="btn-outline btn-full">${icons.mail} Email me a login link</button>` : ""}
+    </form>`,
+  });
 }
 
 export function renderDisconnectedPage(): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Enable Banking MCP - Disconnected</title>
-  <style>${baseStyles}</style>
-</head>
-<body>
-  <div class="container">
-    <div class="alert alert-success">
-      <strong>Bank Disconnected</strong>
-      <p style="margin: 0.25rem 0 0 0;">Your bank account has been disconnected.</p>
-    </div>
-
-    <a href="/setup" style="display: block; text-decoration: none;">
-      <button class="btn-full">Connect a Bank</button>
-    </a>
-  </div>
-</body>
-</html>`;
+  return page({
+    title: "Disconnected",
+    narrow: true,
+    body: card({
+      title: "Bank disconnected",
+      description: "Your bank account has been disconnected.",
+      footer: `<a class="btn" href="/setup">Connect a bank</a>`,
+    }),
+  });
 }
 
 const LAST_UPDATED_DATE = "2026-10-12";
@@ -1858,33 +1054,16 @@ export function renderTermsPage(hostname: string): string {
 }
 
 export function renderErrorPage(title: string, message: string, showRetry = true): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Enable Banking MCP - Error</title>
-  <style>${baseStyles}</style>
-</head>
-<body>
-  <div class="container">
-    <div class="page-header">
-      <h1>${escapeHtml(title)}</h1>
-    </div>
-
-    <div class="alert alert-error">
-      <p style="margin: 0;">${escapeHtml(message)}</p>
-    </div>
-
-    ${showRetry ? `
-    <p>If this problem persists, please check your configuration or try again later.</p>
-    <a href="/setup" style="display: inline-block; text-decoration: none; margin-top: 1rem;">
-      <button class="btn-secondary">Back to Setup</button>
-    </a>
-    ` : ''}
-  </div>
-</body>
-</html>`;
+  return page({
+    title,
+    narrow: true,
+    body: card({
+      title,
+      description: showRetry ? "If this problem persists, check your configuration or try again later." : undefined,
+      content: alert({ variant: "destructive", description: message }),
+      footer: showRetry ? `<a class="btn btn-outline" href="/setup">Back to setup</a>` : undefined,
+    }),
+  });
 }
 
 export interface ConsentConnection {
@@ -1923,111 +1102,88 @@ export function renderConsentPage(
   };
   const connections = opts.connections || [];
   const selected = opts.selected ? new Set(opts.selected) : null;
+  const permissions = scopes
+    .map((scope) => `<li class="ui-status" style="color: var(--foreground);">${icons.checkCircle}<span>${escapeHtml(scopeDescriptions[scope] || scope)}</span></li>`)
+    .join("");
 
-  const loginSection = `
-      <div style="margin-bottom: 1rem;">
-        <label for="password">Enter your password to continue</label>
-        <input type="password" id="password" name="password" autofocus placeholder="Your AUTH_SECRET password" />
-      </div>
-      <div class="btn-row">
-        <button type="submit" name="action" value="login" style="flex: 2;">Log in</button>
-        <button type="submit" name="action" value="deny" class="btn-secondary" style="flex: 1;">Deny</button>
-      </div>
-      ${opts.magicLinkEnabled ? `
-      <div style="text-align: center; margin: 1rem 0 0.5rem; font-size: 0.8125rem; color: var(--muted-foreground);">or</div>
-      <button type="submit" name="action" value="magic" class="btn-secondary btn-full">Email me a login link</button>
-      ` : ""}`;
+  const loginCard = card({
+    title: "Log in to continue",
+    description: "Confirm it's you before granting access.",
+    content: field({
+      id: "password",
+      label: "Password",
+      control: `<input type="password" id="password" name="password" autofocus autocomplete="current-password" />`,
+      description: "Your AUTH_SECRET.",
+    }),
+    footer: `<button type="submit" name="action" value="login">Log in</button>
+      <button type="submit" name="action" value="deny" class="btn-outline" style="flex: 0 0 auto;">Deny</button>`,
+  });
 
-  const pickerSection = `
-      <input type="hidden" name="picker" value="1" />
-      <div class="alert alert-success" style="margin-bottom: 1rem;">You are already logged in</div>
-      <div class="card">
-        <h3>Bank connections ${escapeHtml(clientName)} can access</h3>
-        ${connections.length === 0 ? `
-          <p style="font-size: 0.875rem; color: var(--muted-foreground); margin: 0;">No banks connected yet. Add one below, or approve now and add banks later.</p>
-        ` : connections.map((c) => `
-          <label class="consent-conn" style="display: flex; gap: 0.75rem; align-items: flex-start; padding: 0.625rem 0; border-bottom: 1px solid var(--border); cursor: pointer; font-weight: normal;">
-            <input type="checkbox" name="connection" value="${escapeHtml(c.id)}" ${!selected || selected.has(c.id) ? "checked" : ""} style="width: auto; margin-top: 0.2rem;" />
-            <span>
-              <strong>${escapeHtml(c.label)}</strong><br />
-              <span style="font-size: 0.8125rem; color: var(--muted-foreground);">${escapeHtml(c.aspspName)} · ${c.psuType === "business" ? "Business" : "Personal"} · ${c.accountCount} account${c.accountCount !== 1 ? "s" : ""}</span>
-            </span>
-          </label>`).join("")}
-        <p style="font-size: 0.75rem; color: var(--muted-foreground); margin: 0.75rem 0 0;">Leave all ticked to also include banks you add later.</p>
-        <button type="submit" name="action" value="add_bank" formnovalidate class="btn-secondary btn-full" style="margin-top: 0.75rem;">+ Add new bank connection</button>
-      </div>
-      <div class="btn-row">
-        <button type="submit" name="action" value="approve" style="flex: 2;">Allow Access</button>
-        <button type="submit" name="action" value="deny" class="btn-secondary" style="flex: 1;">Deny</button>
+  const choices = connections.length === 0
+    ? `<p class="text-muted" style="margin: 0;">No banks connected yet. Add one below, or allow access now and add banks later.</p>`
+    : `<div class="ui-choice-list">${connections.map((c) => `
+        <label class="ui-choice">
+          <input type="checkbox" name="connection" value="${escapeHtml(c.id)}" ${!selected || selected.has(c.id) ? "checked" : ""} />
+          <span style="flex: 1;">
+            <span class="ui-choice-title">${escapeHtml(c.label)}</span><br />
+            <span class="ui-choice-description">${escapeHtml(c.aspspName)} · ${c.psuType === "business" ? "Business" : "Personal"} · ${c.accountCount} account${c.accountCount !== 1 ? "s" : ""}</span>
+          </span>
+          ${consentBadge(c.validUntil)}
+        </label>`).join("")}
       </div>`;
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Enable Banking MCP - Authorize</title>
-  <style>${baseStyles}</style>
-</head>
-<body>
-  <div class="container">
-    <div class="page-header">
-      <h1>Authorization Request</h1>
-      <p class="subtitle"><strong>${escapeHtml(clientName)}</strong> wants to access your banking data</p>
-    </div>
+  const pickerCard = card({
+    title: "Bank connections",
+    description: `Choose which connections ${clientName} can access. Leave all ticked to include banks you add later.`,
+    content: `
+      <input type="hidden" name="picker" value="1" />
+      ${choices}
+      <button type="submit" name="action" value="add_bank" formnovalidate class="btn-outline btn-full mt-4">${icons.plus} Add new bank connection</button>`,
+    footer: `<button type="submit" name="action" value="approve">Allow access</button>
+      <button type="submit" name="action" value="deny" class="btn-outline" style="flex: 0 0 auto;">Deny</button>`,
+  });
 
-    ${error ? `<div class="alert alert-error">${escapeHtml(error)}</div>` : ""}
-    ${opts.notice ? `<div class="alert alert-success">${escapeHtml(opts.notice)}</div>` : ""}
-
-    <div class="card">
-      <h3>Requested Permissions</h3>
-      <ul style="list-style: none; padding: 0; margin: 0;">
-        ${scopes.map((scope) => `
-          <li style="padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.875rem;">
-            ${escapeHtml(scopeDescriptions[scope] || scope)}
-          </li>
-        `).join("")}
-      </ul>
-    </div>
-
+  return page({
+    title: "Authorize",
+    narrow: true,
+    body: `
+    ${pageHeader("Authorization request", `<strong>${escapeHtml(clientName)}</strong> wants to access your banking data.`)}
+    ${flash(error, opts.notice)}
+    ${card({
+      title: "Requested permissions",
+      content: `<ul class="stack-sm" style="list-style: none;">${permissions}</ul>
+        ${requirePassword ? "" : `<div class="ui-separator"></div><div class="ui-status">${icons.checkCircle}<span>Signed in as the owner</span></div>`}`,
+    })}
     <form method="POST">
       <input type="hidden" name="handle" value="${escapeHtml(handle)}" />
-      ${requirePassword ? loginSection : pickerSection}
+      ${requirePassword ? loginCard : pickerCard}
+      ${requirePassword && opts.magicLinkEnabled ? `
+      <button type="submit" name="action" value="magic" class="btn-outline btn-full">${icons.mail} Email me a login link</button>` : ""}
     </form>
-
-    <p style="font-size: 0.75rem; color: var(--muted-foreground); margin-top: 1.5rem; text-align: center;">
-      This is your personal banking MCP server. Only authorize clients you trust.
-    </p>
-  </div>
-</body>
-</html>`;
+    <p class="footnote">This is your personal banking MCP server. Only authorize clients you trust.</p>`,
+  });
 }
 
 /** Confirm page for an emailed magic link (POST consumes the one-time token). */
 export function renderMagicLinkPage(token: string, valid: boolean): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Enable Banking MCP - Log in</title>
-  <style>${baseStyles}</style>
-</head>
-<body>
-  <div class="container">
-    <div class="page-header">
-      <h1>${valid ? "Log in" : "Link expired"}</h1>
-      <p class="subtitle">${valid ? "Continue to your banking MCP server" : "This login link has expired or was already used. Request a new one."}</p>
-    </div>
-    ${valid ? `
-    <form method="POST" action="/auth/magic">
-      <input type="hidden" name="token" value="${escapeHtml(token)}" />
-      <button type="submit" class="btn-full">Continue</button>
-    </form>` : `
-    <a href="/login" style="display: block; text-decoration: none;"><button class="btn-full">Back to login</button></a>`}
-  </div>
-</body>
-</html>`;
+  return page({
+    title: valid ? "Log in" : "Link expired",
+    narrow: true,
+    body: valid
+      ? `<form method="POST" action="/auth/magic">
+          <input type="hidden" name="token" value="${escapeHtml(token)}" />
+          ${card({
+            title: "Log in",
+            description: "Continue to your banking MCP server. This link works once.",
+            footer: `<button type="submit">Continue ${icons.arrowRight}</button>`,
+          })}
+        </form>`
+      : card({
+          title: "Link expired",
+          content: alert({ variant: "destructive", description: "This login link has expired or was already used. Request a new one." }),
+          footer: `<a class="btn" href="/login">Back to login</a>`,
+        }),
+  });
 }
 
 export function renderConnectPage(
@@ -2043,82 +1199,45 @@ export function renderConnectPage(
   const countryName = getCountryDisplayName(country);
   const editable = Boolean(opts.editable);
   
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Connect Bank - ${escapeHtml(label)}</title>
-  <style>${baseStyles}</style>
-</head>
-<body>
-  <div class="container">
-    <div class="page-header">
-      <h1>Connect Bank</h1>
-      <p class="subtitle">${editable ? "Add a new bank connection" : `Adding connection: <strong>${escapeHtml(label)}</strong>`}</p>
-    </div>
+  const countryOptions = (opts.countries || [country])
+    .map((c) => `<option value="${escapeHtml(c)}" ${c === country ? "selected" : ""}>${escapeHtml(getCountryDisplayName(c))}</option>`)
+    .join("");
 
-    ${editable ? `
-    <div class="field-group">
-      <label for="countrySelect">Country</label>
-      <select id="countrySelect" onchange="location.href='/connect?token=${encodeURIComponent(token)}&country=' + this.value">
-        ${(opts.countries || [country]).map((c) => `<option value="${escapeHtml(c)}" ${c === country ? "selected" : ""}>${escapeHtml(getCountryDisplayName(c))}</option>`).join("")}
-      </select>
-    </div>
-    ` : `
-    <div class="card">
-      <div class="info-row">
-        <span class="info-label">Label</span>
-        <span class="info-value">${escapeHtml(label)}</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">Account Type</span>
-        <span class="info-value">${psuType === "business" ? "Business" : "Personal"}</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">Country</span>
-        <span class="info-value">${escapeHtml(countryName)}</span>
-      </div>
-    </div>`}
+  const detailsContent = editable
+    ? `
+      ${field({ id: "countrySelect", label: "Country", control: `<select id="countrySelect" onchange="location.href='/connect?token=${encodeURIComponent(token)}&country=' + this.value">${countryOptions}</select>` })}
+      ${field({ id: "label", label: "Connection label", control: `<input type="text" id="label" name="label" form="connectForm" maxlength="80" placeholder="e.g. Personal, Holm Friis Holding" />`, description: "Shown in your AI assistant as the connection group." })}
+      ${field({ id: "psuTypeSelect", label: "Account type", control: `<select id="psuTypeSelect" name="psu_type" form="connectForm">
+          <option value="personal" ${psuType !== "business" ? "selected" : ""}>Personal</option>
+          <option value="business" ${psuType === "business" ? "selected" : ""}>Business</option>
+        </select>` })}`
+    : `
+      <div class="info-row"><span class="info-label">Label</span><span class="info-value">${escapeHtml(label)}</span></div>
+      <div class="info-row"><span class="info-label">Account type</span><span class="info-value">${psuType === "business" ? "Business" : "Personal"}</span></div>
+      <div class="info-row"><span class="info-label">Country</span><span class="info-value">${escapeHtml(countryName)}</span></div>`;
 
+  return page({
+    title: "Connect bank",
+    narrow: true,
+    body: `
+    ${pageHeader("Connect bank", editable ? "Add a new bank connection." : `Adding connection <strong>${escapeHtml(label)}</strong>.`)}
+    ${card({ title: "Details", content: detailsContent })}
     <form id="connectForm" action="/auth/connect" method="POST">
       <input type="hidden" name="token" value="${escapeHtml(token)}" />
       <input type="hidden" name="country" value="${escapeHtml(country)}" />
-      ${editable ? `
-      <div class="field-group">
-        <label for="label">Connection Label</label>
-        <input type="text" id="label" name="label" maxlength="80" placeholder="e.g., Personal, Holm Friis Holding" />
-      </div>
-      <div class="field-group">
-        <label for="psuTypeSelect">Account Type</label>
-        <select id="psuTypeSelect" name="psu_type">
-          <option value="personal" ${psuType !== "business" ? "selected" : ""}>Personal</option>
-          <option value="business" ${psuType === "business" ? "selected" : ""}>Business</option>
-        </select>
-      </div>
-      ` : `<input type="hidden" name="psu_type" value="${escapeHtml(psuType)}" />`}
-      
-      <div class="section-group">
-        <label for="bankSearch">Select Bank</label>
-        <input type="text" id="bankSearch" placeholder="Search banks..." value="${escapeHtml(searchQuery || "")}" style="margin-bottom: 0;" />
-        <div class="banks-container">
-          <div id="banksList" class="banks-list"></div>
-        </div>
-        <input type="hidden" id="aspspId" name="aspsp_id" required />
-        <input type="hidden" id="aspspName" name="aspsp_name" />
-      </div>
-
-      <div id="submitSection" class="submit-section">
-        <button type="submit" id="connectBtn" class="btn-full" disabled>Connect Bank</button>
-      </div>
+      ${editable ? "" : `<input type="hidden" name="psu_type" value="${escapeHtml(psuType)}" />`}
+      ${card({
+        title: "Select bank",
+        description: "You'll be redirected to your bank (e.g. MitID) to approve read access.",
+        content: `
+          <input type="text" id="bankSearch" aria-label="Search banks" placeholder="Search banks..." value="${escapeHtml(searchQuery || "")}" />
+          <div class="banks-container"><div id="banksList" class="banks-list"></div></div>
+          <input type="hidden" id="aspspId" name="aspsp_id" required />
+          <input type="hidden" id="aspspName" name="aspsp_name" />`,
+        footer: `<button type="submit" id="connectBtn" disabled>Connect bank ${icons.arrowRight}</button>
+          ${opts.returnTo ? `<a class="btn btn-outline" style="flex: 0 0 auto;" href="${escapeHtml(opts.returnTo)}">Cancel</a>` : ""}`,
+      })}
     </form>
-
-    <p style="font-size: 0.8125rem; color: var(--muted-foreground); margin-top: 1rem; text-align: center;">
-      You will be redirected to your bank to authorize access.
-    </p>
-    ${opts.returnTo ? `<p style="text-align: center; font-size: 0.8125rem;"><a href="${escapeHtml(opts.returnTo)}">Cancel and go back</a></p>` : ""}
-  </div>
-
   <script>
     const allBanks = ${JSON.stringify(banks.map(b => ({ name: b.name, aspsp_id: b.aspsp_id || b.name, sandbox: b.sandbox })))};
     let selectedBankId = null;
@@ -2171,7 +1290,6 @@ export function renderConnectPage(
     const initialQuery = bankSearch.value.toLowerCase();
     const initialFiltered = initialQuery ? allBanks.filter(b => b.name.toLowerCase().includes(initialQuery)) : allBanks;
     renderBanks(initialFiltered);
-  </script>
-</body>
-</html>`;
+  </script>`,
+  });
 }

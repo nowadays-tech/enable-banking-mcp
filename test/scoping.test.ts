@@ -242,7 +242,7 @@ describe("consent and connect pages", () => {
     const html = renderConsentPage("Grok", ["banking:read"], "h", false, undefined, { connections: conns });
     expect(html.match(/name="connection" value="[^"]+" checked/g)).toHaveLength(2);
     expect(html).toContain('value="add_bank"');
-    expect(html).toContain("+ Add new bank connection");
+    expect(html).toContain("Add new bank connection");
     expect(html).toContain("Holm &lt;Friis&gt;");
   });
   it("respects a previous selection", () => {
@@ -257,7 +257,7 @@ describe("consent and connect pages", () => {
   it("editable connect page asks for label and account type", () => {
     const html = renderConnectPage("https://x", "", "personal", "DK", [], "tok", undefined, { editable: true, countries: ["DK", "SE"], returnTo: "/authorize?a=1" });
     expect(html).toContain('name="label"');
-    expect(html).toContain('<select id="psuTypeSelect" name="psu_type">');
+    expect(html).toContain('<select id="psuTypeSelect" name="psu_type" form="connectForm">');
     expect(html).toContain('href="/authorize?a=1"');
   });
 });

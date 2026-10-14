@@ -1719,3 +1719,126 @@ export function renderConsentPage(
 </body>
 </html>`;
 }
+
+export function renderConnectPage(
+  baseUrl: string,
+  label: string,
+  psuType: "personal" | "business",
+  country: string,
+  banks: ASPSP[],
+  token: string,
+  searchQuery?: string
+): string {
+  const countryName = getCountryDisplayName(country);
+  
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Connect Bank - ${escapeHtml(label)}</title>
+  <style>${baseStyles}</style>
+</head>
+<body>
+  <div class="container">
+    <div class="page-header">
+      <h1>Connect Bank</h1>
+      <p class="subtitle">Adding connection: <strong>${escapeHtml(label)}</strong></p>
+    </div>
+
+    <div class="card">
+      <div class="info-row">
+        <span class="info-label">Label</span>
+        <span class="info-value">${escapeHtml(label)}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Account Type</span>
+        <span class="info-value">${psuType === "business" ? "Business" : "Personal"}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Country</span>
+        <span class="info-value">${escapeHtml(countryName)}</span>
+      </div>
+    </div>
+
+    <form id="connectForm" action="/auth/connect" method="POST">
+      <input type="hidden" name="token" value="${escapeHtml(token)}" />
+      <input type="hidden" name="psu_type" value="${escapeHtml(psuType)}" />
+      <input type="hidden" name="country" value="${escapeHtml(country)}" />
+      
+      <div class="section-group">
+        <label for="bankSearch">Select Bank</label>
+        <input type="text" id="bankSearch" placeholder="Search banks..." value="${escapeHtml(searchQuery || "")}" style="margin-bottom: 0;" />
+        <div class="banks-container">
+          <div id="banksList" class="banks-list"></div>
+        </div>
+        <input type="hidden" id="aspspId" name="aspsp_id" required />
+        <input type="hidden" id="aspspName" name="aspsp_name" />
+      </div>
+
+      <div id="submitSection" class="submit-section">
+        <button type="submit" id="connectBtn" class="btn-full" disabled>Connect Bank</button>
+      </div>
+    </form>
+
+    <p style="font-size: 0.8125rem; color: var(--muted-foreground); margin-top: 1rem; text-align: center;">
+      You will be redirected to your bank to authorize access.
+    </p>
+  </div>
+
+  <script>
+    const allBanks = ${JSON.stringify(banks.map(b => ({ name: b.name, aspsp_id: b.aspsp_id || b.name, sandbox: b.sandbox })))};
+    let selectedBankId = null;
+    const banksList = document.getElementById('banksList');
+    const bankSearch = document.getElementById('bankSearch');
+    const aspspIdInput = document.getElementById('aspspId');
+    const aspspNameInput = document.getElementById('aspspName');
+    const connectBtn = document.getElementById('connectBtn');
+
+    function updateConnectButton() {
+      connectBtn.disabled = !selectedBankId;
+    }
+
+    function renderBanks(banks) {
+      if (banks.length === 0) {
+        banksList.innerHTML = '<div class="loading">No banks found</div>';
+        return;
+      }
+      banksList.innerHTML = banks.map(b => {
+        const bankId = b.aspsp_id || b.name;
+        const isSelected = bankId === selectedBankId;
+        return '<div class="bank-item' + (isSelected ? ' selected' : '') + '" data-id="' + bankId + '" data-name="' + b.name + '">' +
+          '<div class="bank-item-content">' +
+            '<span class="bank-name">' + b.name + '</span>' +
+            (b.sandbox ? '<span class="bank-sandbox-badge">Sandbox</span>' : '') +
+          '</div>' +
+          '<svg class="bank-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' +
+        '</div>';
+      }).join('');
+
+      document.querySelectorAll('.bank-item').forEach(item => {
+        item.addEventListener('click', () => {
+          document.querySelectorAll('.bank-item').forEach(i => i.classList.remove('selected'));
+          item.classList.add('selected');
+          selectedBankId = item.dataset.id;
+          aspspIdInput.value = item.dataset.id;
+          aspspNameInput.value = item.dataset.name;
+          updateConnectButton();
+        });
+      });
+    }
+
+    bankSearch.addEventListener('input', () => {
+      const query = bankSearch.value.toLowerCase();
+      const filtered = allBanks.filter(b => b.name.toLowerCase().includes(query));
+      renderBanks(filtered);
+    });
+
+    // Initial render
+    const initialQuery = bankSearch.value.toLowerCase();
+    const initialFiltered = initialQuery ? allBanks.filter(b => b.name.toLowerCase().includes(initialQuery)) : allBanks;
+    renderBanks(initialFiltered);
+  </script>
+</body>
+</html>`;
+}

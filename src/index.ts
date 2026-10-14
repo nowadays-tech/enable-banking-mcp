@@ -11,6 +11,9 @@ import {
   storePendingAuth,
   getPendingAuth,
   deletePendingAuth,
+  getConnectRequest,
+  deleteConnectRequest,
+  type ConnectRequest,
 } from "./enable-banking/client";
 import {
   storeCredentials,
@@ -35,6 +38,7 @@ import {
   renderPrivacyPage,
   renderTermsPage,
   renderErrorPage,
+  renderConnectPage,
   type WizardState,
 } from "./ui/pages";
 
@@ -183,12 +187,13 @@ export const MCP_HANDLER_OPTIONS = {
   },
 };
 
-export const createMcpHandlerForEnv = (env: Env) =>
-  createMcpHandler(() => createBankingMcpServer(env), MCP_HANDLER_OPTIONS);
+export const createMcpHandlerForEnv = (env: Env, baseUrl?: string) =>
+  createMcpHandler(() => createBankingMcpServer(env, baseUrl), MCP_HANDLER_OPTIONS);
 
 export class McpApiHandler extends WorkerEntrypoint<Env> {
   async fetch(request: Request): Promise<Response> {
-    return createMcpHandlerForEnv(this.env)(request, this.env, this.ctx);
+    const baseUrl = getBaseUrl(request);
+    return createMcpHandlerForEnv(this.env, baseUrl)(request, this.env, this.ctx);
   }
 }
 
@@ -321,6 +326,64 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
     return new Response("Method not allowed", { status: 405 });
   }
 
+  private async handleConnectFlow(
+    request: Request,
+    connectRequest: ConnectRequest,
+    token: string,
+    baseUrl: string
+  ): Promise<Response> {
+    const url = new URL(request.url);
+    const { label, psuType, country, bankName } = connectRequest;
+
+    try {
+      const client = await EnableBankingClient.create(this.env);
+      const banks = await client.getASPSPs(country);
+
+      let matchedBank: { name: string; aspsp_id?: string } | undefined;
+      if (bankName) {
+        const exactMatches = banks.filter(
+          (b) => b.name.toLowerCase() === bankName.toLowerCase()
+        );
+        if (exactMatches.length === 1) {
+          matchedBank = exactMatches[0];
+        }
+      }
+
+      if (matchedBank) {
+        const state = crypto.randomUUID();
+        const redirectUrl = `${baseUrl}/callback`;
+
+        const auth = await client.startAuthorization(
+          matchedBank.name,
+          country,
+          redirectUrl,
+          psuType,
+          state
+        );
+
+        await storePendingAuth(
+          this.env.BANKING_KV,
+          state,
+          matchedBank.aspsp_id || matchedBank.name,
+          matchedBank.name,
+          country
+        );
+
+        await deleteConnectRequest(this.env.BANKING_KV, token);
+
+        return Response.redirect(auth.url, 302);
+      }
+
+      return htmlResponse(
+        renderConnectPage(baseUrl, label, psuType, country, banks, token, bankName)
+      );
+    } catch (error) {
+      console.error("Failed to handle connect flow:", error);
+      const { message, details } = parseApiError(error);
+      return htmlResponse(renderCallbackErrorPage(message, details), 500);
+    }
+  }
+
   private async handleSetupRoutes(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
@@ -349,10 +412,14 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
         }
 
         const sessionCookie = await createSessionCookie(this.env);
+        
+        const returnTo = url.searchParams.get("return_to");
+        const location = returnTo && returnTo.startsWith("/") ? returnTo : "/setup";
+        
         return new Response(null, {
           status: 302,
           headers: {
-            Location: "/setup",
+            Location: location,
             "Set-Cookie": sessionCookie,
           },
         });
@@ -360,6 +427,31 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
     }
 
     const isAuthenticated = await validateSessionAuth(request, this.env);
+
+    if (path === "/connect") {
+      const token = url.searchParams.get("token");
+      
+      if (!token) {
+        return htmlResponse(
+          renderCallbackErrorPage("Missing token", "No connect token was provided."),
+          400
+        );
+      }
+
+      const connectRequest = await getConnectRequest(this.env.BANKING_KV, token);
+      if (!connectRequest) {
+        return htmlResponse(
+          renderCallbackErrorPage("Invalid or expired token", "The connect link has expired or is invalid. Please request a new one."),
+          400
+        );
+      }
+
+      if (!isAuthenticated) {
+        return Response.redirect(`${baseUrl}/login?return_to=${encodeURIComponent(`/connect?token=${token}`)}`, 302);
+      }
+
+      return this.handleConnectFlow(request, connectRequest, token, baseUrl);
+    }
 
     if (path === "/" || path === "/setup") {
       if (!isAuthenticated) {
@@ -587,6 +679,78 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
       }
     }
 
+    if (path === "/auth/connect") {
+      if (!isAuthenticated) {
+        return Response.redirect(`${baseUrl}/login`, 302);
+      }
+
+      if (request.method !== "POST") {
+        return new Response("Method not allowed", { status: 405 });
+      }
+
+      const formData = await request.formData();
+      const token = formData.get("token")?.toString();
+      const aspspId = formData.get("aspsp_id")?.toString();
+      const aspspName = formData.get("aspsp_name")?.toString() || aspspId || "";
+      const country = formData.get("country")?.toString();
+      const psuType = (formData.get("psu_type")?.toString() || "personal") as "personal" | "business";
+
+      if (!token) {
+        return htmlResponse(
+          renderCallbackErrorPage("Missing token", "No connect token was provided."),
+          400
+        );
+      }
+
+      const connectRequest = await getConnectRequest(this.env.BANKING_KV, token);
+      if (!connectRequest) {
+        return htmlResponse(
+          renderCallbackErrorPage("Invalid or expired token", "The connect link has expired. Please request a new one."),
+          400
+        );
+      }
+
+      if (!aspspId) {
+        return htmlResponse(
+          renderCallbackErrorPage("Please select a bank", "No bank was selected from the list."),
+          400
+        );
+      }
+
+      if (!country) {
+        return htmlResponse(
+          renderCallbackErrorPage("Please select a country", "No country was selected."),
+          400
+        );
+      }
+
+      const state = crypto.randomUUID();
+      const redirectUrl = `${baseUrl}/callback`;
+
+      try {
+        const client = await EnableBankingClient.create(this.env);
+        const auth = await client.startAuthorization(
+          aspspName,
+          country,
+          redirectUrl,
+          psuType,
+          state
+        );
+
+        await storePendingAuth(this.env.BANKING_KV, state, aspspId, aspspName, country);
+        await deleteConnectRequest(this.env.BANKING_KV, token);
+
+        return Response.redirect(auth.url, 302);
+      } catch (error) {
+        console.error("Failed to start authorization:", error);
+        const { message, details } = parseApiError(error);
+        return htmlResponse(
+          renderCallbackErrorPage(message, details),
+          500
+        );
+      }
+    }
+
     if (path === "/callback") {
       const code = url.searchParams.get("code");
       const state = url.searchParams.get("state");
@@ -739,7 +903,7 @@ export default {
       if (path === "/mcp" || path.startsWith("/mcp/")) {
         const isBearerAuth = await validateBearerToken(request, env);
         if (isBearerAuth) {
-          return createMcpHandlerForEnv(env)(request, env, ctx);
+          return createMcpHandlerForEnv(env, baseUrl)(request, env, ctx);
         }
       }
 

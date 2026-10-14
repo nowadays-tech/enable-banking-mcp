@@ -5,6 +5,7 @@ import {
   EnableBankingClient,
   getStoredSession,
   isConsentExpired,
+  storeConnectRequest,
 } from "../enable-banking/client";
 
 const CONSENT_EXPIRED_MESSAGE =
@@ -61,7 +62,7 @@ function textContent(text: string) {
   };
 }
 
-export function createBankingMcpServer(env: Env) {
+export function createBankingMcpServer(env: Env, baseUrl?: string) {
   const server = new McpServer({
     name: "enable-banking-mcp",
     version: "1.0.0",
@@ -71,7 +72,9 @@ export function createBankingMcpServer(env: Env) {
     "list_accounts",
     {
       description:
-        "List all connected bank accounts. Shows account names, IBANs, currencies, and types.",
+        "List all connected bank accounts. Shows account names, IBANs, currencies, and types. " +
+        "Note: Adding another MCP client (e.g. Claude, ChatGPT) does NOT add a new bank - " +
+        "use add_bank_connection to connect additional banks.",
       inputSchema: {},
     },
     async () => {
@@ -452,6 +455,125 @@ export function createBankingMcpServer(env: Env) {
             },
             spendingByCategory: sortByValue(spending),
             incomeByCategory: sortByValue(income),
+          },
+          null,
+          2
+        )
+      );
+    }
+  );
+
+  server.registerTool(
+    "connection_status",
+    {
+      description:
+        "Get the status of the current bank connection, including consent expiry and account count. " +
+        "Note: Adding another MCP client (e.g. Claude, ChatGPT) does NOT add a new bank - " +
+        "use add_bank_connection to connect additional banks.",
+      inputSchema: {},
+    },
+    async () => {
+      const session = await getStoredSession(env.BANKING_KV);
+
+      if (!session) {
+        return textContent(
+          JSON.stringify(
+            {
+              connected: false,
+              message: "No bank account connected. Use add_bank_connection or visit /setup to connect a bank.",
+            },
+            null,
+            2
+          )
+        );
+      }
+
+      const expired = isConsentExpired(session);
+      const expiryDate = new Date(session.consentValidUntil);
+      const now = new Date();
+      const daysUntilExpiry = Math.ceil(
+        (expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+      );
+
+      return textContent(
+        JSON.stringify(
+          {
+            connected: true,
+            bank: session.aspspName,
+            country: session.aspspCountry,
+            accountCount: session.accounts.length,
+            consentValidUntil: session.consentValidUntil,
+            consentExpired: expired,
+            daysUntilExpiry: expired ? 0 : daysUntilExpiry,
+            connectedSince: session.createdAt,
+          },
+          null,
+          2
+        )
+      );
+    }
+  );
+
+  server.registerTool(
+    "add_bank_connection",
+    {
+      description:
+        "Start adding a new bank connection. Returns a URL to authorize a new bank account. " +
+        "Use this to add additional banks - note that adding another MCP client login (e.g. authorizing " +
+        "Claude or ChatGPT) does NOT add a new bank; you must use this tool or /setup to connect new banks.",
+      inputSchema: {
+        label: z.string().describe("A label for this connection (e.g. 'Holm & Friis Holding', 'Personal Account')"),
+        psu_type: z
+          .enum(["personal", "business"])
+          .optional()
+          .describe("Type of account: 'personal' (default) or 'business'"),
+        country: z
+          .string()
+          .optional()
+          .describe("Two-letter country code (e.g. 'DK', 'SE'). Defaults to 'DK'"),
+        bank: z
+          .string()
+          .optional()
+          .describe("Bank name to pre-select. If it matches exactly one bank, skips bank selection"),
+      },
+    },
+    async ({ label, psu_type, country, bank }) => {
+      if (!baseUrl) {
+        return textContent(
+          JSON.stringify(
+            {
+              error: "Base URL not configured. Cannot generate connection URL.",
+            },
+            null,
+            2
+          )
+        );
+      }
+
+      const token = crypto.randomUUID();
+      const psuType = psu_type || "personal";
+      const countryCode = country || "DK";
+
+      await storeConnectRequest(env.BANKING_KV, token, {
+        label,
+        psuType,
+        country: countryCode,
+        bankName: bank,
+        createdAt: Date.now(),
+      });
+
+      const connectUrl = `${baseUrl}/connect?token=${token}`;
+
+      return textContent(
+        JSON.stringify(
+          {
+            url: connectUrl,
+            label,
+            psuType,
+            country: countryCode,
+            bank: bank || null,
+            expiresIn: "1 hour",
+            instructions: "Open this URL to authorize the bank connection. You will need to log in with your setup password first.",
           },
           null,
           2

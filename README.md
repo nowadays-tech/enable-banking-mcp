@@ -160,6 +160,8 @@ When set via environment, these take precedence over wizard-configured credentia
 
 ## MCP Tools
 
+> **Note:** Adding another MCP client (e.g., authorizing Claude.ai after ChatGPT) does NOT add a new bank connection. To connect additional banks, use the `add_bank_connection` tool or visit `/setup`.
+
 ### `list_accounts`
 Lists all connected bank accounts with names, IBANs, currencies, and account types.
 
@@ -186,6 +188,16 @@ Search transactions by text in counterparty name or description.
 Summarizes spending by category for a month.
 - `account_id` (required): The account ID
 - `month` (optional): Month in YYYY-MM format, or "last3" for last 3 months
+
+### `connection_status`
+Get the status of the current bank connection, including consent expiry and account count.
+
+### `add_bank_connection`
+Start adding a new bank connection from chat. Returns a URL that, after password login, goes straight to Enable Banking authorization.
+- `label` (required): A label for this connection (e.g., "Holm & Friis Holding", "Personal Account")
+- `psu_type` (optional): Type of account - "personal" (default) or "business"
+- `country` (optional): Two-letter country code (e.g., "DK", "SE"). Defaults to "DK"
+- `bank` (optional): Bank name to pre-select. If it matches exactly one bank, skips bank selection
 
 ## Configuration
 

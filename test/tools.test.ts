@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { BankSession, Transaction, Env } from "../src/types";
-import { isConsentExpired, EnableBankingClient } from "../src/enable-banking/client";
+import { 
+  isConsentExpired, 
+  EnableBankingClient,
+  storeConnectRequest,
+  getConnectRequest,
+  deleteConnectRequest,
+  type ConnectRequest,
+} from "../src/enable-banking/client";
 
 const mockSession: BankSession = {
   sessionId: "session-123",
@@ -512,5 +519,107 @@ cBPC3yZ0OB/L3d4dQ6xKDBJn
     );
 
     expect(body).toHaveProperty("psu_type", "business");
+  });
+});
+
+describe("Connect Request Management", () => {
+  const createMockKV = () => {
+    const store = new Map<string, string>();
+    return {
+      put: vi.fn(async (key: string, value: string, options?: { expirationTtl?: number }) => {
+        store.set(key, value);
+      }),
+      get: vi.fn(async (key: string, type?: string) => {
+        const value = store.get(key);
+        if (!value) return null;
+        if (type === "json") return JSON.parse(value);
+        return value;
+      }),
+      delete: vi.fn(async (key: string) => {
+        store.delete(key);
+      }),
+    } as unknown as KVNamespace;
+  };
+
+  it("should store and retrieve a connect request", async () => {
+    const kv = createMockKV();
+    const token = "test-token-123";
+    const request: ConnectRequest = {
+      label: "Holm & Friis Holding",
+      psuType: "business",
+      country: "DK",
+      bankName: "Danske Bank",
+      createdAt: Date.now(),
+    };
+
+    await storeConnectRequest(kv, token, request);
+    const retrieved = await getConnectRequest(kv, token);
+
+    expect(retrieved).not.toBeNull();
+    expect(retrieved?.label).toBe("Holm & Friis Holding");
+    expect(retrieved?.psuType).toBe("business");
+    expect(retrieved?.country).toBe("DK");
+    expect(retrieved?.bankName).toBe("Danske Bank");
+  });
+
+  it("should return null for non-existent token", async () => {
+    const kv = createMockKV();
+    const retrieved = await getConnectRequest(kv, "non-existent-token");
+    expect(retrieved).toBeNull();
+  });
+
+  it("should delete a connect request", async () => {
+    const kv = createMockKV();
+    const token = "delete-test-token";
+    const request: ConnectRequest = {
+      label: "Test Account",
+      psuType: "personal",
+      country: "SE",
+      createdAt: Date.now(),
+    };
+
+    await storeConnectRequest(kv, token, request);
+    let retrieved = await getConnectRequest(kv, token);
+    expect(retrieved).not.toBeNull();
+
+    await deleteConnectRequest(kv, token);
+    retrieved = await getConnectRequest(kv, token);
+    expect(retrieved).toBeNull();
+  });
+
+  it("should store with expiration TTL", async () => {
+    const kv = createMockKV();
+    const token = "ttl-test-token";
+    const request: ConnectRequest = {
+      label: "TTL Test",
+      psuType: "personal",
+      country: "NO",
+      createdAt: Date.now(),
+    };
+
+    await storeConnectRequest(kv, token, request);
+    
+    expect(kv.put).toHaveBeenCalledWith(
+      `connect_request:${token}`,
+      expect.any(String),
+      { expirationTtl: 3600 }
+    );
+  });
+
+  it("should handle optional bankName", async () => {
+    const kv = createMockKV();
+    const token = "no-bank-token";
+    const request: ConnectRequest = {
+      label: "No Bank Specified",
+      psuType: "personal",
+      country: "FI",
+      createdAt: Date.now(),
+    };
+
+    await storeConnectRequest(kv, token, request);
+    const retrieved = await getConnectRequest(kv, token);
+
+    expect(retrieved).not.toBeNull();
+    expect(retrieved?.bankName).toBeUndefined();
   });
 });

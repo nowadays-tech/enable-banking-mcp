@@ -5,6 +5,8 @@ A personal remote MCP (Model Context Protocol) server that connects your bank ac
 ## Features
 
 - **5 MCP Tools**: `list_accounts`, `get_balances`, `get_transactions`, `search_transactions`, `summarize_spending`
+- **Multiple Bank Connections**: Connect multiple banks with custom labels (e.g., "Personal", "Business")
+- **Personal & Business Accounts**: Support for both personal and business (corporate) bank accounts
 - **32 European Countries**: Supports banks across the EU/EEA via Enable Banking
 - **OAuth + Bearer Token Auth**: OAuth for Claude.ai/ChatGPT, Bearer token for Cursor/CLI tools
 - **Guided Setup Wizard**: Step-by-step instructions right in the web UI
@@ -67,8 +69,23 @@ After deployment, visit your worker URL (e.g., `https://enable-banking-mcp.YOUR-
    - The `.pem` private key downloads automatically when you generate it
 3. **Step B**: Enter your App ID and upload the `.pem` file
    - The wizard validates your credentials against the Enable Banking API
-4. **Step C**: Select your country and connect your bank
+4. **Step C**: Connect your bank(s)
+   - Give each connection a label (e.g., "Personal", "Business", "Joint Account")
+   - Choose account type: Personal (individual) or Business (corporate)
+   - Select your country and bank
+   - Add multiple connections to aggregate accounts from different banks
 5. **Step D**: Copy your MCP server URLs for Claude.ai, ChatGPT, or Cursor
+
+### Multiple Bank Connections
+
+You can connect multiple bank accounts from different banks or the same bank with different account types:
+
+- **Personal accounts**: Your individual bank accounts
+- **Business accounts**: Corporate/business bank accounts (where supported by the bank)
+
+Each connection has a custom label that appears in the MCP tool responses, making it easy to identify which accounts belong to which connection (e.g., "Personal - Nordea", "Business - Danske Bank").
+
+To add another connection, visit the setup page and click "Add Another Connection".
 
 ### 3. Add to Your AI Assistant
 
@@ -160,24 +177,39 @@ When set via environment, these take precedence over wizard-configured credentia
 
 ## MCP Tools
 
+### `connection_status`
+Lists all bank connections with their consent status, expiry dates, and renewal links. Use this to check which connections need renewal.
+
+Returns for each connection:
+- `connectionId`: Unique identifier for the connection
+- `label`: Human-readable name (e.g., "Default", "Business")
+- `bank`: Bank name
+- `country`: Country code
+- `psuType`: "personal" or "business"
+- `validUntil`: Consent expiry date
+- `daysLeft`: Days until consent expires
+- `status`: "ok", "expiring" (≤14 days), or "expired"
+- `renewUrl`: Direct link to renew the consent
+
 > **Note:** Adding another MCP client (e.g., authorizing Claude.ai after ChatGPT) does NOT add a new bank connection. To connect additional banks, use the `add_bank_connection` tool or visit `/setup`.
 
 ### `list_accounts`
-Lists all connected bank accounts with names, IBANs, currencies, and account types.
+Lists all connected bank accounts across all connections with names, IBANs, currencies, account types, and connection group labels.
+- `group` (optional): Filter accounts by connection group/label (e.g., "Personal", "Business")
 
 ### `get_balances`
-Gets the current balance for a specific account.
+Gets the current balance for a specific account. Automatically resolves the correct bank connection.
 - `account_id` (required): The account ID from `list_accounts`
 
 ### `get_transactions`
-Retrieves transactions within a date range.
+Retrieves transactions within a date range. Automatically resolves the correct bank connection.
 - `account_id` (required): The account ID
 - `date_from` (optional): Start date (YYYY-MM-DD), defaults to 30 days ago
 - `date_to` (optional): End date (YYYY-MM-DD), defaults to today
 - `continuation_key` (optional): For paginating large result sets
 
 ### `search_transactions`
-Search transactions by text in counterparty name or description.
+Search transactions by text in counterparty name or description. Automatically resolves the correct bank connection.
 - `account_id` (required): The account ID
 - `query` (required): Search text (case-insensitive)
 - `date_from` (optional): Start date, defaults to 90 days ago
@@ -185,12 +217,18 @@ Search transactions by text in counterparty name or description.
 - `limit` (optional): Maximum results, defaults to 50
 
 ### `summarize_spending`
-Summarizes spending by category for a month.
+Summarizes spending by category for a month. Automatically resolves the correct bank connection.
 - `account_id` (required): The account ID
 - `month` (optional): Month in YYYY-MM format, or "last3" for last 3 months
 
-### `connection_status`
-Get the status of the current bank connection, including consent expiry and account count.
+### Consent Expiry Warnings
+
+All banking tools automatically append a warning when any connection has 14 days or less until consent expires. The warning includes:
+- The connection label
+- Days remaining until expiry
+- A direct renew URL
+
+When a connection is expired, tools return a clear error message with a direct link to renew the consent.
 
 ### `add_bank_connection`
 Start adding a new bank connection from chat. Returns a URL that, after password login, goes straight to Enable Banking authorization.
@@ -241,10 +279,13 @@ This server supports two authentication methods:
 
 ## Limitations & Notes
 
-### Consent Duration
+### Consent Duration & Renewal
 - Bank consent typically lasts **90-180 days** depending on the bank
 - You'll need to reconnect when consent expires
 - The setup page shows your consent expiry date
+- **Automatic warnings**: MCP tools warn you when consent is expiring (≤14 days left)
+- **Direct renewal**: Visit `/renew/<connectionId>` to renew a specific connection without re-entering bank details
+- Use the `connection_status` tool to see all connections with their renewal links
 
 ### Rate Limits
 - Enable Banking has rate limits on API calls

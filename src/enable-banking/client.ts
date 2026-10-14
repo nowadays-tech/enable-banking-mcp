@@ -8,7 +8,12 @@ import type {
   BalanceResponse,
   TransactionsResponse,
   ASPSP,
+  BankSession,
+  ConnectionStatus,
+  ConnectionStatusInfo,
 } from "../types";
+
+const EXPIRY_WARNING_DAYS = 14;
 
 export class EnableBankingClient {
   private env: Env;
@@ -176,46 +181,231 @@ export class EnableBankingClient {
 
 export async function getStoredSession(
   kv: KVNamespace,
-  userId: string = "default"
+  connectionId: string = "default"
 ): Promise<import("../types").BankSession | null> {
-  const data = await kv.get(`session:${userId}`, "json");
+  const data = await kv.get(`session:${connectionId}`, "json");
   return data as import("../types").BankSession | null;
 }
 
 export async function storeSession(
   kv: KVNamespace,
   session: import("../types").BankSession,
-  userId: string = "default"
+  connectionId: string = "default"
 ): Promise<void> {
   const expirationTtl = Math.floor(
     (new Date(session.consentValidUntil).getTime() - Date.now()) / 1000
   );
-  await kv.put(`session:${userId}`, JSON.stringify(session), {
+  await kv.put(`session:${connectionId}`, JSON.stringify(session), {
     expirationTtl: Math.max(expirationTtl, 60),
   });
 }
 
 export async function deleteStoredSession(
   kv: KVNamespace,
-  userId: string = "default"
+  connectionId: string = "default"
 ): Promise<void> {
-  await kv.delete(`session:${userId}`);
+  await kv.delete(`session:${connectionId}`);
 }
 
-export function isConsentExpired(session: import("../types").BankSession): boolean {
+const CONNECTION_INDEX_KEY = "connection_index";
+
+export async function getConnectionIndex(
+  kv: KVNamespace
+): Promise<import("../types").ConnectionIndex | null> {
+  const data = await kv.get(CONNECTION_INDEX_KEY, "json");
+  return data as import("../types").ConnectionIndex | null;
+}
+
+export async function storeConnectionIndex(
+  kv: KVNamespace,
+  index: import("../types").ConnectionIndex
+): Promise<void> {
+  await kv.put(CONNECTION_INDEX_KEY, JSON.stringify(index));
+}
+
+export async function addConnectionToIndex(
+  kv: KVNamespace,
+  connection: import("../types").ConnectionInfo
+): Promise<void> {
+  const index = await getConnectionIndex(kv) || { connections: [], updatedAt: new Date().toISOString() };
+  const existingIdx = index.connections.findIndex(c => c.id === connection.id);
+  if (existingIdx >= 0) {
+    index.connections[existingIdx] = connection;
+  } else {
+    index.connections.push(connection);
+  }
+  index.updatedAt = new Date().toISOString();
+  await storeConnectionIndex(kv, index);
+}
+
+export async function removeConnectionFromIndex(
+  kv: KVNamespace,
+  connectionId: string
+): Promise<void> {
+  const index = await getConnectionIndex(kv);
+  if (!index) return;
+  index.connections = index.connections.filter(c => c.id !== connectionId);
+  index.updatedAt = new Date().toISOString();
+  await storeConnectionIndex(kv, index);
+}
+
+export async function getAllSessions(
+  kv: KVNamespace
+): Promise<Array<import("../types").BankSession & { connectionId: string }>> {
+  const sessions: Array<import("../types").BankSession & { connectionId: string }> = [];
+  
+  const defaultSession = await getStoredSession(kv, "default");
+  if (defaultSession) {
+    sessions.push({ ...defaultSession, connectionId: "default" });
+  }
+  
+  const index = await getConnectionIndex(kv);
+  if (index) {
+    for (const conn of index.connections) {
+      if (conn.id === "default") continue;
+      const session = await getStoredSession(kv, conn.id);
+      if (session) {
+        sessions.push({ ...session, connectionId: conn.id });
+      }
+    }
+  }
+  
+  return sessions;
+}
+
+export async function findConnectionByAccountId(
+  kv: KVNamespace,
+  accountId: string
+): Promise<{ session: import("../types").BankSession; connectionId: string } | null> {
+  const sessions = await getAllSessions(kv);
+  for (const session of sessions) {
+    const account = session.accounts.find(a => a.accountId === accountId);
+    if (account) {
+      return { session, connectionId: session.connectionId };
+    }
+  }
+  return null;
+}
+
+export function generateConnectionId(): string {
+  return `conn_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+}
+
+export function isConsentExpired(session: BankSession): boolean {
   return new Date(session.consentValidUntil) <= new Date();
+}
+
+export function getDaysUntilExpiry(session: BankSession): number {
+  const expiryDate = new Date(session.consentValidUntil);
+  const now = new Date();
+  return Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+export function getConnectionStatus(session: BankSession): ConnectionStatus {
+  const daysLeft = getDaysUntilExpiry(session);
+  if (daysLeft <= 0) return "expired";
+  if (daysLeft <= EXPIRY_WARNING_DAYS) return "expiring";
+  return "ok";
+}
+
+export function isConsentExpiring(session: BankSession): boolean {
+  return getConnectionStatus(session) === "expiring";
+}
+
+export function getConnectionId(session: BankSession): string {
+  if (session.connectionId) return session.connectionId;
+  if (session.label && session.label !== "Default") return session.label;
+  return "default";
+}
+
+export function getConnectionLabel(session: BankSession): string {
+  return session.label || "Default";
+}
+
+export function buildConnectionInfo(
+  session: BankSession,
+  baseUrl: string
+): ConnectionStatusInfo {
+  const connectionId = getConnectionId(session);
+  const daysLeft = getDaysUntilExpiry(session);
+  const status = getConnectionStatus(session);
+  
+  return {
+    connectionId,
+    label: getConnectionLabel(session),
+    bank: session.aspspName,
+    country: session.aspspCountry,
+    psuType: session.psuType || "personal",
+    validUntil: session.consentValidUntil,
+    daysLeft,
+    status,
+    renewUrl: `${baseUrl}/renew/${encodeURIComponent(connectionId)}`,
+    accountCount: session.accounts.length,
+  };
+}
+
+export function buildExpiryWarning(
+  sessions: BankSession[],
+  baseUrl: string
+): string | null {
+  const warnings: string[] = [];
+  
+  for (const session of sessions) {
+    const status = getConnectionStatus(session);
+    if (status === "expiring" || status === "expired") {
+      const daysLeft = getDaysUntilExpiry(session);
+      const label = getConnectionLabel(session);
+      const connectionId = getConnectionId(session);
+      const renewUrl = `${baseUrl}/renew/${encodeURIComponent(connectionId)}`;
+      
+      if (status === "expired") {
+        warnings.push(
+          `⚠️ Connection '${label}' has expired. Renew here: ${renewUrl}`
+        );
+      } else {
+        warnings.push(
+          `⚠️ Connection '${label}' expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}. Renew here: ${renewUrl}`
+        );
+      }
+    }
+  }
+  
+  return warnings.length > 0 ? warnings.join("\n") : null;
+}
+
+export function isExpiredSessionError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message.toLowerCase();
+  return (
+    msg.includes("session_expired") ||
+    msg.includes("consent_expired") ||
+    msg.includes("invalid_session") ||
+    msg.includes("session not found") ||
+    msg.includes("consent not found") ||
+    (msg.includes("enable banking api error") && 
+     (msg.includes("401") || msg.includes("403")) &&
+     (msg.includes("session") || msg.includes("consent")))
+  );
+}
+
+export interface PendingAuthData {
+  aspspId: string;
+  aspspName: string;
+  aspspCountry: string;
+  connectionId: string;
+  psuType: "personal" | "business";
+  label: string;
+  isRenewal?: boolean;
 }
 
 export async function storePendingAuth(
   kv: KVNamespace,
   state: string,
-  aspspId: string,
-  aspspName: string,
-  aspspCountry: string
+  data: PendingAuthData
 ): Promise<void> {
   await kv.put(
     `pending_auth:${state}`,
-    JSON.stringify({ aspspId, aspspName, aspspCountry }),
+    JSON.stringify(data),
     { expirationTtl: 600 }
   );
 }
@@ -223,9 +413,9 @@ export async function storePendingAuth(
 export async function getPendingAuth(
   kv: KVNamespace,
   state: string
-): Promise<{ aspspId: string; aspspName: string; aspspCountry: string } | null> {
+): Promise<PendingAuthData | null> {
   const data = await kv.get(`pending_auth:${state}`, "json");
-  return data as { aspspId: string; aspspName: string; aspspCountry: string } | null;
+  return data as PendingAuthData | null;
 }
 
 export async function deletePendingAuth(
@@ -235,6 +425,21 @@ export async function deletePendingAuth(
   await kv.delete(`pending_auth:${state}`);
 }
 
+export async function storeBaseUrl(kv: KVNamespace, baseUrl: string): Promise<void> {
+  await kv.put("config:baseUrl", baseUrl);
+}
+
+/** Store the worker's public base URL if it is missing or changed. */
+export async function ensureBaseUrl(kv: KVNamespace, baseUrl: string): Promise<void> {
+  const current = await kv.get("config:baseUrl");
+  if (current !== baseUrl) {
+    await kv.put("config:baseUrl", baseUrl);
+  }
+}
+
+export async function getBaseUrl(kv: KVNamespace): Promise<string | null> {
+  return await kv.get("config:baseUrl");
+}
 export interface ConnectRequest {
   label: string;
   psuType: "personal" | "business";

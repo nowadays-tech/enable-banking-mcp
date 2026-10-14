@@ -11,10 +11,20 @@ import {
   storePendingAuth,
   getPendingAuth,
   deletePendingAuth,
+  getConnectionIndex,
+  addConnectionToIndex,
+  removeConnectionFromIndex,
+  getAllSessions,
+  generateConnectionId,
+  storeBaseUrl,
+  ensureBaseUrl,
   getConnectRequest,
   deleteConnectRequest,
   type ConnectRequest,
+  getConnectionId,
+  getConnectionLabel,
 } from "./enable-banking/client";
+import type { ConnectionInfo } from "./types";
 import {
   storeCredentials,
   getEffectiveCredentials,
@@ -54,16 +64,33 @@ async function buildWizardState(env: Env): Promise<WizardState> {
   const storedCredentialsMeta = await getStoredCredentialsMetadata(env.BANKING_KV);
   const hasCredentials = credentialsFromEnv || storedCredentialsMeta !== null;
   
-  const session = await getStoredSession(env.BANKING_KV);
+  const allSessions = await getAllSessions(env.BANKING_KV);
+  const connectionIndex = await getConnectionIndex(env.BANKING_KV);
+  
+  const connections: WizardState["connections"] = allSessions.map(session => {
+    const connInfo = connectionIndex?.connections.find(c => c.id === session.connectionId);
+    return {
+      id: session.connectionId,
+      label: connInfo?.label || session.label || (session.connectionId === "default" ? "Default" : session.aspspName),
+      psuType: connInfo?.psuType || session.psuType || "personal",
+      aspspName: session.aspspName,
+      aspspCountry: session.aspspCountry,
+      validUntil: session.consentValidUntil,
+      accountCount: session.accounts.length,
+    };
+  });
+  
+  const defaultSession = allSessions.find(s => s.connectionId === "default");
   
   return {
     hasCredentials,
     credentialsFromEnv,
     appId: credentialsFromEnv ? env.ENABLE_BANKING_APP_ID : storedCredentialsMeta?.appId,
-    hasBankSession: session !== null,
-    bankName: session?.aspspName,
-    accountCount: session?.accounts.length,
-    consentExpiry: session?.consentValidUntil,
+    hasBankSession: allSessions.length > 0,
+    bankName: defaultSession?.aspspName,
+    accountCount: defaultSession?.accounts.length,
+    consentExpiry: defaultSession?.consentValidUntil,
+    connections,
   };
 }
 
@@ -187,13 +214,12 @@ export const MCP_HANDLER_OPTIONS = {
   },
 };
 
-export const createMcpHandlerForEnv = (env: Env, baseUrl?: string) =>
-  createMcpHandler(() => createBankingMcpServer(env, baseUrl), MCP_HANDLER_OPTIONS);
+export const createMcpHandlerForEnv = (env: Env) =>
+  createMcpHandler(() => createBankingMcpServer(env), MCP_HANDLER_OPTIONS);
 
 export class McpApiHandler extends WorkerEntrypoint<Env> {
   async fetch(request: Request): Promise<Response> {
-    const baseUrl = getBaseUrl(request);
-    return createMcpHandlerForEnv(this.env, baseUrl)(request, this.env, this.ctx);
+    return createMcpHandlerForEnv(this.env)(request, this.env, this.ctx);
   }
 }
 
@@ -327,12 +353,10 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
   }
 
   private async handleConnectFlow(
-    request: Request,
     connectRequest: ConnectRequest,
     token: string,
     baseUrl: string
   ): Promise<Response> {
-    const url = new URL(request.url);
     const { label, psuType, country, bankName } = connectRequest;
 
     try {
@@ -350,28 +374,15 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
       }
 
       if (matchedBank) {
-        const state = crypto.randomUUID();
-        const redirectUrl = `${baseUrl}/callback`;
-
-        const auth = await client.startAuthorization(
-          matchedBank.name,
-          country,
-          redirectUrl,
-          psuType,
-          state
-        );
-
-        await storePendingAuth(
-          this.env.BANKING_KV,
-          state,
+        return await this.startConnectAuthorization(
+          token,
           matchedBank.aspsp_id || matchedBank.name,
           matchedBank.name,
-          country
+          country,
+          psuType,
+          label,
+          baseUrl
         );
-
-        await deleteConnectRequest(this.env.BANKING_KV, token);
-
-        return Response.redirect(auth.url, 302);
       }
 
       return htmlResponse(
@@ -382,6 +393,36 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
       const { message, details } = parseApiError(error);
       return htmlResponse(renderCallbackErrorPage(message, details), 500);
     }
+  }
+
+  private async startConnectAuthorization(
+    token: string,
+    aspspId: string,
+    aspspName: string,
+    country: string,
+    psuType: "personal" | "business",
+    label: string,
+    baseUrl: string
+  ): Promise<Response> {
+    const state = crypto.randomUUID();
+    const client = await EnableBankingClient.create(this.env);
+    const auth = await client.startAuthorization(
+      aspspName,
+      country,
+      `${baseUrl}/callback`,
+      psuType,
+      state
+    );
+    await storePendingAuth(this.env.BANKING_KV, state, {
+      aspspId,
+      aspspName,
+      aspspCountry: country,
+      connectionId: generateConnectionId(),
+      psuType,
+      label: label || aspspName,
+    });
+    await deleteConnectRequest(this.env.BANKING_KV, token);
+    return Response.redirect(auth.url, 302);
   }
 
   private async handleSetupRoutes(request: Request): Promise<Response> {
@@ -398,28 +439,28 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
     }
 
     if (path === "/login") {
+      const returnUrl = url.searchParams.get("return");
+      
       if (request.method === "GET") {
-        return htmlResponse(renderLoginPage());
+        return htmlResponse(renderLoginPage(undefined, returnUrl || undefined));
       }
 
       if (request.method === "POST") {
         const formData = await request.formData();
         const password = formData.get("password")?.toString() || "";
+        const formReturnUrl = formData.get("return")?.toString();
 
         const isValid = await constantTimeCompare(password, this.env.AUTH_SECRET);
         if (!isValid) {
-          return htmlResponse(renderLoginPage("Invalid password. Please try again."), 401);
+          return htmlResponse(renderLoginPage("Invalid password. Please try again.", formReturnUrl || undefined), 401);
         }
 
         const sessionCookie = await createSessionCookie(this.env);
-        
-        const returnTo = url.searchParams.get("return_to");
-        const location = returnTo && returnTo.startsWith("/") ? returnTo : "/setup";
-        
+        const redirectTo = formReturnUrl && formReturnUrl.startsWith("/") ? formReturnUrl : "/setup";
         return new Response(null, {
           status: 302,
           headers: {
-            Location: location,
+            Location: redirectTo,
             "Set-Cookie": sessionCookie,
           },
         });
@@ -430,14 +471,12 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
 
     if (path === "/connect") {
       const token = url.searchParams.get("token");
-      
       if (!token) {
         return htmlResponse(
           renderCallbackErrorPage("Missing token", "No connect token was provided."),
           400
         );
       }
-
       const connectRequest = await getConnectRequest(this.env.BANKING_KV, token);
       if (!connectRequest) {
         return htmlResponse(
@@ -445,12 +484,60 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
           400
         );
       }
-
       if (!isAuthenticated) {
-        return Response.redirect(`${baseUrl}/login?return_to=${encodeURIComponent(`/connect?token=${token}`)}`, 302);
+        const returnUrl = encodeURIComponent(`/connect?token=${encodeURIComponent(token)}`);
+        return Response.redirect(`${baseUrl}/login?return=${returnUrl}`, 302);
       }
+      return this.handleConnectFlow(connectRequest, token, baseUrl);
+    }
 
-      return this.handleConnectFlow(request, connectRequest, token, baseUrl);
+    if (path === "/auth/connect") {
+      if (!isAuthenticated) {
+        return Response.redirect(`${baseUrl}/login`, 302);
+      }
+      if (request.method !== "POST") {
+        return new Response("Method not allowed", { status: 405 });
+      }
+      const formData = await request.formData();
+      const token = formData.get("token")?.toString();
+      const aspspId = formData.get("aspsp_id")?.toString();
+      const aspspName = formData.get("aspsp_name")?.toString() || aspspId || "";
+      if (!token) {
+        return htmlResponse(
+          renderCallbackErrorPage("Missing token", "No connect token was provided."),
+          400
+        );
+      }
+      const connectRequest = await getConnectRequest(this.env.BANKING_KV, token);
+      if (!connectRequest) {
+        return htmlResponse(
+          renderCallbackErrorPage("Invalid or expired token", "The connect link has expired. Please request a new one."),
+          400
+        );
+      }
+      if (!aspspId) {
+        return htmlResponse(
+          renderCallbackErrorPage("Please select a bank", "No bank was selected from the list."),
+          400
+        );
+      }
+      const country = formData.get("country")?.toString() || connectRequest.country;
+      const psuType = (formData.get("psu_type")?.toString() || connectRequest.psuType || "personal") as "personal" | "business";
+      try {
+        return await this.startConnectAuthorization(
+          token,
+          aspspId,
+          aspspName,
+          country,
+          psuType,
+          connectRequest.label,
+          baseUrl
+        );
+      } catch (error) {
+        console.error("Failed to start authorization:", error);
+        const { message, details } = parseApiError(error);
+        return htmlResponse(renderCallbackErrorPage(message, details), 500);
+      }
     }
 
     if (path === "/" || path === "/setup") {
@@ -458,8 +545,68 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
         return Response.redirect(`${baseUrl}/login`, 302);
       }
 
+      await storeBaseUrl(this.env.BANKING_KV, baseUrl);
       const wizardState = await buildWizardState(this.env);
       return htmlResponse(renderWizardPage(baseUrl, wizardState, COUNTRIES));
+    }
+
+    if (path.startsWith("/renew/")) {
+      const connectionId = decodeURIComponent(path.replace("/renew/", ""));
+      
+      if (!isAuthenticated) {
+        const returnUrl = encodeURIComponent(`/renew/${encodeURIComponent(connectionId)}`);
+        return Response.redirect(`${baseUrl}/login?return=${returnUrl}`, 302);
+      }
+
+      const sessions = await getAllSessions(this.env.BANKING_KV);
+      const session = sessions.find((s) => getConnectionId(s) === connectionId);
+      
+      if (!session) {
+        return htmlResponse(
+          renderCallbackErrorPage(
+            `Connection '${connectionId}' not found`,
+            "This connection may have been removed or does not exist."
+          ),
+          404
+        );
+      }
+
+      const state = crypto.randomUUID();
+      const redirectUrl = `${baseUrl}/callback`;
+      const connIndex = await getConnectionIndex(this.env.BANKING_KV);
+      const connMeta = connIndex?.connections.find((c) => c.id === connectionId);
+      const psuType = connMeta?.psuType || session.psuType || "personal";
+      const label = connMeta?.label || getConnectionLabel(session);
+
+      try {
+        const client = await EnableBankingClient.create(this.env);
+        const auth = await client.startAuthorization(
+          session.aspspName,
+          session.aspspCountry,
+          redirectUrl,
+          psuType,
+          state
+        );
+
+        await storePendingAuth(this.env.BANKING_KV, state, {
+          aspspId: session.aspspId,
+          aspspName: session.aspspName,
+          aspspCountry: session.aspspCountry,
+          connectionId,
+          psuType,
+          label,
+          isRenewal: true,
+        });
+
+        return Response.redirect(auth.url, 302);
+      } catch (error) {
+        console.error("Failed to start renewal authorization:", error);
+        const { message, details } = parseApiError(error);
+        return htmlResponse(
+          renderCallbackErrorPage(message, details),
+          500
+        );
+      }
     }
 
     if (path === "/bank/connect") {
@@ -637,6 +784,9 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
         const aspspId = formData.get("aspsp_id")?.toString();
         const aspspName = formData.get("aspsp_name")?.toString() || aspspId || "";
         const country = formData.get("country")?.toString();
+        const psuType = (formData.get("psu_type")?.toString() || "personal") as "personal" | "business";
+        const label = formData.get("label")?.toString() || "";
+        const connectionId = formData.get("connection_id")?.toString() || generateConnectionId();
 
         if (!aspspId) {
           return htmlResponse(
@@ -661,11 +811,18 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
             aspspName,
             country,
             redirectUrl,
-            "personal",
+            psuType,
             state
           );
 
-          await storePendingAuth(this.env.BANKING_KV, state, aspspId, aspspName, country);
+          await storePendingAuth(this.env.BANKING_KV, state, {
+            aspspId,
+            aspspName,
+            aspspCountry: country,
+            connectionId,
+            psuType,
+            label: label || aspspName,
+          });
 
           return Response.redirect(auth.url, 302);
         } catch (error) {
@@ -676,78 +833,6 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
             500
           );
         }
-      }
-    }
-
-    if (path === "/auth/connect") {
-      if (!isAuthenticated) {
-        return Response.redirect(`${baseUrl}/login`, 302);
-      }
-
-      if (request.method !== "POST") {
-        return new Response("Method not allowed", { status: 405 });
-      }
-
-      const formData = await request.formData();
-      const token = formData.get("token")?.toString();
-      const aspspId = formData.get("aspsp_id")?.toString();
-      const aspspName = formData.get("aspsp_name")?.toString() || aspspId || "";
-      const country = formData.get("country")?.toString();
-      const psuType = (formData.get("psu_type")?.toString() || "personal") as "personal" | "business";
-
-      if (!token) {
-        return htmlResponse(
-          renderCallbackErrorPage("Missing token", "No connect token was provided."),
-          400
-        );
-      }
-
-      const connectRequest = await getConnectRequest(this.env.BANKING_KV, token);
-      if (!connectRequest) {
-        return htmlResponse(
-          renderCallbackErrorPage("Invalid or expired token", "The connect link has expired. Please request a new one."),
-          400
-        );
-      }
-
-      if (!aspspId) {
-        return htmlResponse(
-          renderCallbackErrorPage("Please select a bank", "No bank was selected from the list."),
-          400
-        );
-      }
-
-      if (!country) {
-        return htmlResponse(
-          renderCallbackErrorPage("Please select a country", "No country was selected."),
-          400
-        );
-      }
-
-      const state = crypto.randomUUID();
-      const redirectUrl = `${baseUrl}/callback`;
-
-      try {
-        const client = await EnableBankingClient.create(this.env);
-        const auth = await client.startAuthorization(
-          aspspName,
-          country,
-          redirectUrl,
-          psuType,
-          state
-        );
-
-        await storePendingAuth(this.env.BANKING_KV, state, aspspId, aspspName, country);
-        await deleteConnectRequest(this.env.BANKING_KV, token);
-
-        return Response.redirect(auth.url, 302);
-      } catch (error) {
-        console.error("Failed to start authorization:", error);
-        const { message, details } = parseApiError(error);
-        return htmlResponse(
-          renderCallbackErrorPage(message, details),
-          500
-        );
       }
     }
 
@@ -797,12 +882,28 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
           })),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
+          psuType: pendingAuth.psuType,
+          label: pendingAuth.label,
+          connectionId: pendingAuth.connectionId,
         };
 
-        await storeSession(this.env.BANKING_KV, session);
+        await storeSession(this.env.BANKING_KV, session, pendingAuth.connectionId);
+        
+        const connectionInfo: ConnectionInfo = {
+          id: pendingAuth.connectionId,
+          label: pendingAuth.label,
+          psuType: pendingAuth.psuType,
+          aspspName: session.aspspName,
+          aspspCountry: session.aspspCountry,
+          validUntil: session.consentValidUntil,
+          createdAt: session.createdAt,
+        };
+        await addConnectionToIndex(this.env.BANKING_KV, connectionInfo);
+        
         await deletePendingAuth(this.env.BANKING_KV, state);
 
-        return htmlResponse(renderCallbackSuccessPage(session));
+        const isRenewal = pendingAuth.isRenewal;
+        return htmlResponse(renderCallbackSuccessPage(session, isRenewal));
       } catch (error) {
         console.error("Failed to create session:", error);
         return htmlResponse(
@@ -819,7 +920,10 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
         return Response.redirect(`${baseUrl}/login`, 302);
       }
 
-      const session = await getStoredSession(this.env.BANKING_KV);
+      const formData = await request.formData();
+      const connectionId = formData.get("connection_id")?.toString() || "default";
+      
+      const session = await getStoredSession(this.env.BANKING_KV, connectionId);
       if (session) {
         try {
           const client = await EnableBankingClient.create(this.env);
@@ -827,7 +931,10 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
         } catch (error) {
           console.error("Failed to delete session at Enable Banking:", error);
         }
-        await deleteStoredSession(this.env.BANKING_KV);
+        await deleteStoredSession(this.env.BANKING_KV, connectionId);
+        if (connectionId !== "default") {
+          await removeConnectionFromIndex(this.env.BANKING_KV, connectionId);
+        }
       }
       
       const wizardState = await buildWizardState(this.env);
@@ -901,9 +1008,15 @@ export default {
       }
 
       if (path === "/mcp" || path.startsWith("/mcp/")) {
+        // Remember the public base URL so renew links work without visiting /setup first.
+        try {
+          await ensureBaseUrl(env.BANKING_KV, baseUrl);
+        } catch (error) {
+          console.error("Failed to store base URL:", error);
+        }
         const isBearerAuth = await validateBearerToken(request, env);
         if (isBearerAuth) {
-          return createMcpHandlerForEnv(env, baseUrl)(request, env, ctx);
+          return createMcpHandlerForEnv(env)(request, env, ctx);
         }
       }
 

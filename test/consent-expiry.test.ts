@@ -327,17 +327,15 @@ describe("PendingAuth with Renewal Fields", () => {
       "../src/enable-banking/client"
     );
 
-    await storePendingAuth(
-      mockKV as unknown as KVNamespace,
-      "state-123",
-      "bank-id",
-      "Bank Name",
-      "SE",
-      "business",
-      "Business Account",
-      "biz-conn",
-      true
-    );
+    await storePendingAuth(mockKV as unknown as KVNamespace, "state-123", {
+      aspspId: "bank-id",
+      aspspName: "Bank Name",
+      aspspCountry: "SE",
+      psuType: "business",
+      label: "Business Account",
+      connectionId: "biz-conn",
+      isRenewal: true,
+    });
 
     expect(mockKV.put).toHaveBeenCalledWith(
       "pending_auth:state-123",

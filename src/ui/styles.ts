@@ -413,4 +413,40 @@ export const baseStyles = `
   .empty-state { font-size: 0.875rem; color: var(--muted-foreground); text-align: center; padding: 1rem 0; margin: 0; }
   .danger-zone { border-color: color-mix(in srgb, var(--destructive) 40%, var(--border)); }
   .danger-zone .ui-card-title { color: var(--destructive); }
+  /* Bank rows + accounts */
+  .bank-card { overflow: hidden; }
+  .bank-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; padding: 1rem 1.25rem 0.875rem; }
+  .bank-icon { width: 2.25rem; height: 2.25rem; flex: none; display: grid; place-items: center; border-radius: var(--radius); background: var(--muted); color: var(--muted-foreground); }
+  .bank-icon svg { width: 1rem; height: 1rem; }
+  .bank-main { flex: 1; min-width: 0; }
+  .bank-title { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9375rem; font-weight: 600; }
+  .bank-meta { font-size: 0.8125rem; color: var(--muted-foreground); margin-top: 0.125rem; }
+  .bank-actions { display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; flex-basis: 100%; padding-left: 3rem; margin-top: -0.125rem; }
+  .bank-actions .push-right { margin-left: auto; }
+  .bank-actions form { margin: 0; }
+  .bank-rename { padding: 0 1.25rem 1rem; margin: 0 !important; }
+  .account-list { list-style: none; margin: 0; padding: 0.25rem 0; background: color-mix(in srgb, var(--muted) 45%, transparent); }
+  .account-list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.5rem 1.25rem 0.5rem 4.25rem; font-size: 0.8125rem; }
+  .account-list li + li { border-top: 1px solid var(--border); }
+  .account-name { color: var(--foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .account-meta { color: var(--muted-foreground); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 0.8125rem; }
+  .bank-card > .empty-state { padding: 0.75rem 1.25rem; text-align: left; }
+  @media (max-width: 560px) { .bank-actions { padding-left: 0; } .account-list li { padding-left: 1.25rem; } }
+  /* Client access editor */
+  .client-item { border-top: 1px solid var(--border); padding: 0.875rem 0; }
+  .client-item:first-child { border-top: 0; padding-top: 0; }
+  .client-item:last-child { padding-bottom: 0; }
+  .client-item .client-row { border: 0; padding: 0; }
+  .client-actions { display: flex; align-items: center; gap: 0.25rem; }
+  .client-actions form { margin: 0; }
+  .scope-editor { margin: 0.875rem 0 0 3rem; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); }
+  .scope-editor label { display: flex; align-items: flex-start; gap: 0.625rem; font-size: 0.875rem; cursor: pointer; margin: 0; font-weight: 400; }
+  .scope-editor input[type="checkbox"] { margin-top: 0.125rem; }
+  .scope-all { padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
+  .scope-banks { display: flex; flex-direction: column; gap: 0.75rem; padding-top: 0.75rem; }
+  .scope-banks input:disabled + span, .scope-banks input:disabled ~ span { opacity: 0.55; }
+  .scope-accounts { display: flex; flex-direction: column; gap: 0.375rem; margin: 0.5rem 0 0 1.625rem; }
+  .scope-account { align-items: center !important; }
+  .scope-account .account-meta { margin-left: auto; }
+  input[type="checkbox"]:indeterminate { background: var(--primary); border-color: var(--primary); background-image: linear-gradient(var(--primary-foreground), var(--primary-foreground)); background-size: 0.5rem 2px; background-position: center; background-repeat: no-repeat; }
 `;

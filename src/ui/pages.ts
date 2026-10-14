@@ -55,6 +55,7 @@ export interface WizardConnection {
   aspspCountry: string;
   validUntil: string;
   accountCount: number;
+  accounts?: { accountId: string; name?: string; iban?: string; currency?: string }[];
 }
 
 export interface WizardState {

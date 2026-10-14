@@ -2,7 +2,7 @@ import { forEachTransactionPage, signedAmount } from "../enable-banking/transact
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { Env, BankSession, BankAccount, Transaction, ConnectionStatusInfo } from "../types";
-import { resolveScope, filterByScope, inScope, type TokenProps, type AccessScope } from "../scope";
+import { resolveScope, filterByScope, filterAccountsByScope, inScope, type TokenProps, type AccessScope } from "../scope";
 import {
   EnableBankingClient,
   isConsentExpired,
@@ -40,7 +40,7 @@ type LabelledSession = BankSession & { connectionId: string; label: string };
 
 /** All sessions visible to this token, with resolved labels. */
 async function scopedSessions(env: Env, scope: AccessScope): Promise<LabelledSession[]> {
-  const sessions = filterByScope(scope, await getAllSessions(env.BANKING_KV));
+  const sessions = filterAccountsByScope(scope, filterByScope(scope, await getAllSessions(env.BANKING_KV)));
   const index = await getConnectionIndex(env.BANKING_KV);
   return withLabels(sessions, index) as LabelledSession[];
 }
@@ -206,13 +206,13 @@ function withSkipped<T extends object>(body: T, skippedExpired: string[]): T {
  * @param props OAuth token props. Absent (AUTH_SECRET bearer) or without
  * scopeGroups means the token can see all connections.
  */
-export function createBankingMcpServer(env: Env, props?: TokenProps | null) {
+export function createBankingMcpServer(env: Env, props?: TokenProps | null, grantId?: string) {
   const server = new McpServer({
     name: "enable-banking-mcp",
     version: "1.0.0",
   });
 
-  const getScope = () => resolveScope(env.BANKING_KV, props);
+  const getScope = () => resolveScope(env.BANKING_KV, props, grantId);
 
   // Map bank "expired/invalid session" API errors to a clear renew message.
   const originalRegisterTool = server.registerTool.bind(server) as (...args: any[]) => any;

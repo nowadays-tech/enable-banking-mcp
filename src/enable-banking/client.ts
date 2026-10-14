@@ -16,6 +16,22 @@ import type {
 
 const EXPIRY_WARNING_DAYS = 14;
 
+export interface SessionStatusResponse {
+  status?: string;
+  accounts?: Array<string | { uid?: string }>;
+  accounts_data?: Array<{ uid?: string }>;
+  access?: { valid_until?: string };
+}
+
+export interface AccountDetailsResponse {
+  uid?: string;
+  account_id?: { iban?: string };
+  name?: string;
+  details?: string;
+  currency?: string;
+  cash_account_type?: string;
+}
+
 export class EnableBankingClient {
   private env: Env;
   private baseUrl: string;
@@ -118,6 +134,15 @@ export class EnableBankingClient {
 
   async getSession(sessionId: string): Promise<SessionResponse> {
     return await this.request<SessionResponse>("GET", `/sessions/${sessionId}`);
+  }
+
+  /** GET /sessions/{id}: status and the account uids the consent currently covers. */
+  async getSessionStatus(sessionId: string): Promise<SessionStatusResponse> {
+    return await this.request<SessionStatusResponse>("GET", `/sessions/${sessionId}`);
+  }
+
+  async getAccountDetails(accountId: string): Promise<AccountDetailsResponse> {
+    return await this.request<AccountDetailsResponse>("GET", `/accounts/${accountId}/details`);
   }
 
   async deleteSession(sessionId: string): Promise<void> {

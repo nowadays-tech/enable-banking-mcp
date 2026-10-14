@@ -1,5 +1,6 @@
 import { alert, badge, card, consentBadge, escapeHtml, flash, icons, page, pageHeader } from "./components";
 import { describeClientScope, type McpClientView } from "../mcp-clients";
+import { maskIban } from "../enable-banking/refresh";
 
 export interface OverviewConnection {
   id: string;
@@ -9,6 +10,7 @@ export interface OverviewConnection {
   aspspCountry: string;
   validUntil: string;
   accountCount: number;
+  accounts?: { accountId: string; name?: string; iban?: string; currency?: string }[];
 }
 
 export interface SetupOverviewState {
@@ -32,54 +34,126 @@ function sectionHeader(title: string, description: string, count?: string): stri
     </div>`;
 }
 
+function accountLabel(a: { name?: string; iban?: string; currency?: string }): { name: string; meta: string } {
+  return {
+    name: a.name || "Account",
+    meta: [maskIban(a.iban), a.currency].filter(Boolean).join(" · "),
+  };
+}
+
 function bankCard(conn: OverviewConnection): string {
   const expired = new Date(conn.validUntil).getTime() <= Date.now();
-  const meta = `${conn.aspspName} · ${conn.psuType === "business" ? "Business" : "Personal"} · ${conn.accountCount} account${conn.accountCount === 1 ? "" : "s"}`;
   const id = escapeHtml(conn.id);
-  return card({
-    title: conn.label,
-    description: meta,
-    action: consentBadge(conn.validUntil),
-    className: "bank-card",
-    content: `<p class="text-muted text-sm" style="margin:0;">${expired ? `Consent expired ${fmtDate(conn.validUntil)}` : `Consent valid until ${fmtDate(conn.validUntil)}`}</p>
-      <form action="/connections/rename" method="POST" class="rename-form hidden" id="rename-${id}">
+  const label = escapeHtml(conn.label);
+  const jsLabel = label.replace(/'/g, "&#39;");
+  const kind = conn.psuType === "business" ? "Business" : "Personal";
+  const accounts = conn.accounts || [];
+  const accountList = accounts.length
+    ? `<ul class="account-list">${accounts
+        .map((a) => {
+          const l = accountLabel(a);
+          return `<li><span class="account-name">${escapeHtml(l.name)}</span><span class="account-meta">${escapeHtml(l.meta)}</span></li>`;
+        })
+        .join("")}</ul>`
+    : `<p class="empty-state">No accounts shared by this consent. Use Renew to select accounts at your bank.</p>`;
+  return `<div class="ui-card bank-card">
+      <div class="bank-row">
+        <div class="bank-icon">${icons.landmark}</div>
+        <div class="bank-main">
+          <div class="bank-title">${label} ${consentBadge(conn.validUntil)}</div>
+          <div class="bank-meta">${escapeHtml(conn.aspspName)} · ${kind} · ${conn.accountCount} account${conn.accountCount === 1 ? "" : "s"} · ${expired ? `expired ${fmtDate(conn.validUntil)}` : `valid until ${fmtDate(conn.validUntil)}`}</div>
+        </div>
+        <div class="bank-actions">
+          <form action="/auth/start" method="POST" id="renew-${id}">
+            <input type="hidden" name="connection_id" value="${id}" />
+            <input type="hidden" name="label" value="${label}" />
+            <input type="hidden" name="psu_type" value="${escapeHtml(conn.psuType)}" />
+            <input type="hidden" name="aspsp_id" value="${escapeHtml(conn.aspspName)}" />
+            <input type="hidden" name="aspsp_name" value="${escapeHtml(conn.aspspName)}" />
+            <input type="hidden" name="country" value="${escapeHtml(conn.aspspCountry)}" />
+            <button type="submit" class="${expired ? "btn" : "btn-outline"} btn-sm">${expired ? "Reconnect" : "Renew"}</button>
+          </form>
+          <form action="/connections/refresh" method="POST">
+            <input type="hidden" name="connection_id" value="${id}" />
+            <button type="submit" class="btn-ghost btn-sm" title="Re-read the accounts this consent covers"${expired ? " disabled" : ""}>Refresh accounts</button>
+          </form>
+          <button type="button" class="btn-ghost btn-sm" onclick="toggleRename('rename-${id}')">Rename</button>
+          <form action="/disconnect" method="POST" class="push-right">
+            <input type="hidden" name="connection_id" value="${id}" />
+            <button type="submit" class="btn-ghost btn-sm text-destructive" onclick="return confirm('Disconnect ${jsLabel}? Apps will lose access to this bank.')">Disconnect</button>
+          </form>
+        </div>
+      </div>
+      <form action="/connections/rename" method="POST" class="rename-form hidden bank-rename" id="rename-${id}">
         <input type="hidden" name="connection_id" value="${id}" />
-        <input type="text" name="label" value="${escapeHtml(conn.label)}" maxlength="80" required aria-label="Connection name" />
+        <input type="text" name="label" value="${label}" maxlength="80" required aria-label="Connection name" />
         <button type="submit" class="btn btn-sm">Save</button>
-      </form>`,
-    footer: `<form action="/auth/start" method="POST">
-        <input type="hidden" name="connection_id" value="${id}" />
-        <input type="hidden" name="label" value="${escapeHtml(conn.label)}" />
-        <input type="hidden" name="psu_type" value="${escapeHtml(conn.psuType)}" />
-        <input type="hidden" name="aspsp_id" value="${escapeHtml(conn.aspspName)}" />
-        <input type="hidden" name="aspsp_name" value="${escapeHtml(conn.aspspName)}" />
-        <input type="hidden" name="country" value="${escapeHtml(conn.aspspCountry)}" />
-        <button type="submit" class="${expired ? "btn" : "btn-outline"} btn-sm">${expired ? "Reconnect" : "Renew"}</button>
       </form>
-      <button type="button" class="btn-ghost btn-sm" onclick="toggleRename('rename-${id}')">Rename</button>
-      <form action="/disconnect" method="POST" class="push-right">
-        <input type="hidden" name="connection_id" value="${id}" />
-        <button type="submit" class="btn-ghost btn-sm text-destructive" onclick="return confirm('Disconnect ${escapeHtml(conn.label).replace(/'/g, "&#39;")}? Clients will lose access to this bank.')">Disconnect</button>
-      </form>`,
-  });
+      <div class="ui-separator" style="margin:0;"></div>
+      ${accountList}
+    </div>`;
+}
+
+function scopeEditor(client: McpClientView, connections: OverviewConnection[]): string {
+  const g = escapeHtml(client.grantId);
+  const all = client.scope === "all";
+  const scoped = new Set(all ? [] : client.scope);
+  const banks = connections
+    .map((conn) => {
+      const subset = client.accountIds?.[conn.id];
+      const wholeBank = all || (scoped.has(conn.id) && !subset);
+      const accounts = conn.accounts || [];
+      const accountBoxes = accounts
+        .map((a) => {
+          const l = accountLabel(a);
+          const checked = wholeBank || (subset ? subset.includes(a.accountId) : false);
+          return `<label class="scope-account"><input type="checkbox" name="account" value="${escapeHtml(conn.id)}|${escapeHtml(a.accountId)}" data-bank="${escapeHtml(conn.id)}"${checked ? " checked" : ""} />
+              <span>${escapeHtml(l.name)}</span><span class="account-meta">${escapeHtml(l.meta)}</span></label>`;
+        })
+        .join("");
+      return `<div class="scope-bank">
+          <label class="scope-bank-label"><input type="checkbox" name="connection" value="${escapeHtml(conn.id)}" data-bank-toggle="${escapeHtml(conn.id)}"${wholeBank ? " checked" : ""} />
+            <span><strong>${escapeHtml(conn.label)}</strong> <span class="text-muted">${escapeHtml(conn.aspspName)} · all accounts</span></span></label>
+          ${accountBoxes ? `<div class="scope-accounts">${accountBoxes}</div>` : ""}
+        </div>`;
+    })
+    .join("");
+  return `<form action="/clients/scope" method="POST" class="scope-editor hidden" id="scope-${g}" data-scope-form>
+      <input type="hidden" name="grant_id" value="${g}" />
+      <label class="scope-all"><input type="checkbox" name="all_banks" value="1" data-all-banks${all ? " checked" : ""} />
+        <span><strong>All banks, including future ones</strong><span class="ui-field-description" style="display:block;margin:0;">Banks you add later are shared automatically.</span></span></label>
+      <div class="scope-banks">${banks}</div>
+      <p class="ui-field-description">Ticking a bank shares all its accounts, including ones added later. Tick individual accounts to share only those. Applies immediately; the app doesn't need to reconnect.</p>
+      <div class="btn-row" style="margin-top:0.75rem;">
+        <button type="submit" class="btn btn-sm">Save access</button>
+        <button type="button" class="btn-ghost btn-sm" onclick="toggleScope('scope-${g}')">Cancel</button>
+      </div>
+    </form>`;
 }
 
 function clientRow(client: McpClientView, connections: OverviewConnection[]): string {
-  const scope = describeClientScope(client.scope, connections);
+  const scope = describeClientScope(client.scope, connections, client.accountIds);
   const banks = scope.all
     ? badge("All banks", "secondary")
     : scope.labels.map((l) => badge(l, "outline")).join(" ");
-  return `<li class="client-row">
-      <div class="client-icon">${icons.plug}</div>
-      <div class="client-main">
-        <div class="client-name">${escapeHtml(client.clientName)}</div>
-        <div class="client-meta">Connected ${fmtDate(client.connectedAt)}</div>
-        <div class="client-banks"><span class="text-muted text-xs">Can see:</span> ${banks}</div>
+  const g = escapeHtml(client.grantId);
+  return `<li class="client-item">
+      <div class="client-row">
+        <div class="client-icon">${icons.plug}</div>
+        <div class="client-main">
+          <div class="client-name">${escapeHtml(client.clientName)}</div>
+          <div class="client-meta">Connected ${fmtDate(client.connectedAt)}${client.edited ? " · access edited" : ""}</div>
+          <div class="client-banks"><span class="text-muted text-xs">Can see:</span> ${banks}</div>
+        </div>
+        <div class="client-actions">
+          <button type="button" class="btn-outline btn-sm" onclick="toggleScope('scope-${g}')">Edit access</button>
+          <form action="/clients/revoke" method="POST">
+            <input type="hidden" name="grant_id" value="${g}" />
+            <button type="submit" class="btn-ghost btn-sm text-destructive" onclick="return confirm('Revoke access for ${escapeHtml(client.clientName).replace(/'/g, "&#39;")}? It will need to reconnect.')">Revoke</button>
+          </form>
+        </div>
       </div>
-      <form action="/clients/revoke" method="POST">
-        <input type="hidden" name="grant_id" value="${escapeHtml(client.grantId)}" />
-        <button type="submit" class="btn-outline btn-sm text-destructive" onclick="return confirm('Revoke access for ${escapeHtml(client.clientName).replace(/'/g, "&#39;")}? It will need to reconnect.')">Revoke</button>
-      </form>
+      ${scopeEditor(client, connections)}
     </li>`;
 }
 
@@ -179,6 +253,33 @@ export function renderSetupOverview(
       <div class="ui-separator section-separator"></div>
       ${settingsSection}
       <script>
+        function toggleScope(id) { document.getElementById(id).classList.toggle('hidden'); }
+        document.querySelectorAll('[data-scope-form]').forEach((form) => {
+          const allBox = form.querySelector('[data-all-banks]');
+          const sync = () => {
+            form.querySelectorAll('.scope-banks input').forEach((i) => { i.disabled = allBox.checked; });
+            form.querySelectorAll('[data-bank-toggle]').forEach((bank) => {
+              const kids = [...form.querySelectorAll('[data-bank="' + bank.dataset.bankToggle + '"]')];
+              const n = kids.filter((k) => k.checked).length;
+              bank.indeterminate = !bank.checked && n > 0 && n < kids.length;
+            });
+          };
+          allBox.addEventListener('change', () => {
+            if (allBox.checked) form.querySelectorAll('.scope-banks input').forEach((i) => { i.checked = true; });
+            sync();
+          });
+          form.querySelectorAll('[data-bank-toggle]').forEach((bank) => bank.addEventListener('change', () => {
+            form.querySelectorAll('[data-bank="' + bank.dataset.bankToggle + '"]').forEach((k) => { k.checked = bank.checked; });
+            sync();
+          }));
+          form.querySelectorAll('[data-bank]').forEach((k) => k.addEventListener('change', () => {
+            const bank = form.querySelector('[data-bank-toggle="' + k.dataset.bank + '"]');
+            const kids = [...form.querySelectorAll('[data-bank="' + k.dataset.bank + '"]')];
+            bank.checked = kids.every((x) => x.checked);
+            sync();
+          }));
+          sync();
+        });
         function toggleRename(id) {
           const f = document.getElementById(id);
           f.classList.toggle('hidden');

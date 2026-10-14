@@ -28,6 +28,24 @@ export interface BankSession {
   accounts: BankAccount[];
   createdAt: string;
   updatedAt: string;
+  label?: string;
+  psuType?: "personal" | "business";
+  connectionId?: string;
+}
+
+export type ConnectionStatus = "ok" | "expiring" | "expired";
+
+export interface ConnectionInfo {
+  connectionId: string;
+  label: string;
+  bank: string;
+  country: string;
+  psuType: "personal" | "business";
+  validUntil: string;
+  daysLeft: number;
+  status: ConnectionStatus;
+  renewUrl: string;
+  accountCount: number;
 }
 
 export interface BankAccount {

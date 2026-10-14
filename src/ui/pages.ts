@@ -1314,7 +1314,13 @@ export function renderConnectedPage(
 </html>`;
 }
 
-export function renderCallbackSuccessPage(session: BankSession): string {
+export function renderCallbackSuccessPage(session: BankSession, isRenewal?: boolean): string {
+  const title = isRenewal ? "Consent Renewed Successfully" : "Bank Connected Successfully";
+  const message = isRenewal 
+    ? `Your ${escapeHtml(session.aspspName)} connection has been renewed.`
+    : `Your ${escapeHtml(session.aspspName)} account is now linked.`;
+  const buttonText = isRenewal ? "Back to Setup" : "View Connected Accounts";
+  
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1326,14 +1332,16 @@ export function renderCallbackSuccessPage(session: BankSession): string {
 <body>
   <div class="container">
     <div class="alert alert-success">
-      <strong>Bank Connected Successfully</strong>
-      <p style="margin: 0.25rem 0 0 0;">Your ${session.aspspName} account is now linked.</p>
+      <strong>${title}</strong>
+      <p style="margin: 0.25rem 0 0 0;">${message}</p>
     </div>
 
     <p>Found ${session.accounts.length} account(s). You can now use the MCP tools with your AI assistant.</p>
+    
+    ${session.label ? `<p style="font-size: 0.875rem; color: var(--muted-foreground);">Connection label: <strong>${escapeHtml(session.label)}</strong></p>` : ""}
 
     <a href="/setup" style="display: block; text-decoration: none;">
-      <button class="btn-full">View Connected Accounts</button>
+      <button class="btn-full">${buttonText}</button>
     </a>
   </div>
 </body>
@@ -1377,7 +1385,7 @@ export function renderCallbackErrorPage(error: string, details?: string): string
 </html>`;
 }
 
-export function renderLoginPage(error?: string): string {
+export function renderLoginPage(error?: string, returnUrl?: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1393,9 +1401,10 @@ export function renderLoginPage(error?: string): string {
       <p class="subtitle">Enter your password to access the banking MCP server</p>
     </div>
 
-    ${error ? `<div class="alert alert-error">${error}</div>` : ""}
+    ${error ? `<div class="alert alert-error">${escapeHtml(error)}</div>` : ""}
 
     <form method="POST">
+      ${returnUrl ? `<input type="hidden" name="return" value="${escapeHtml(returnUrl)}" />` : ""}
       <label for="password">Password</label>
       <input type="password" id="password" name="password" required autofocus />
       <button type="submit" class="btn-full">Login</button>

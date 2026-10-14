@@ -160,6 +160,20 @@ When set via environment, these take precedence over wizard-configured credentia
 
 ## MCP Tools
 
+### `connection_status`
+Lists all bank connections with their consent status, expiry dates, and renewal links. Use this to check which connections need renewal.
+
+Returns for each connection:
+- `connectionId`: Unique identifier for the connection
+- `label`: Human-readable name (e.g., "Default", "Business")
+- `bank`: Bank name
+- `country`: Country code
+- `psuType`: "personal" or "business"
+- `validUntil`: Consent expiry date
+- `daysLeft`: Days until consent expires
+- `status`: "ok", "expiring" (≤14 days), or "expired"
+- `renewUrl`: Direct link to renew the consent
+
 ### `list_accounts`
 Lists all connected bank accounts with names, IBANs, currencies, and account types.
 
@@ -186,6 +200,15 @@ Search transactions by text in counterparty name or description.
 Summarizes spending by category for a month.
 - `account_id` (required): The account ID
 - `month` (optional): Month in YYYY-MM format, or "last3" for last 3 months
+
+### Consent Expiry Warnings
+
+All banking tools automatically append a warning when any connection has 14 days or less until consent expires. The warning includes:
+- The connection label
+- Days remaining until expiry
+- A direct renew URL
+
+When a connection is expired, tools return a clear error message with a direct link to renew the consent.
 
 ## Configuration
 
@@ -229,10 +252,13 @@ This server supports two authentication methods:
 
 ## Limitations & Notes
 
-### Consent Duration
+### Consent Duration & Renewal
 - Bank consent typically lasts **90-180 days** depending on the bank
 - You'll need to reconnect when consent expires
 - The setup page shows your consent expiry date
+- **Automatic warnings**: MCP tools warn you when consent is expiring (≤14 days left)
+- **Direct renewal**: Visit `/renew/<connectionId>` to renew a specific connection without re-entering bank details
+- Use the `connection_status` tool to see all connections with their renewal links
 
 ### Rate Limits
 - Enable Banking has rate limits on API calls

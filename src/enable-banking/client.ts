@@ -1,3 +1,4 @@
+import { normalizeTransactionsResponse } from "./transactions";
 import { signJWT, createJWTPayload } from "./jwt";
 import { getEffectiveCredentials } from "./credentials";
 import type {
@@ -146,7 +147,10 @@ export class EnableBankingClient {
       queryString ? `?${queryString}` : ""
     }`;
 
-    return await this.request<TransactionsResponse>("GET", path);
+    // Enable Banking returns a flat array with per-item status; normalize so
+    // callers always get { booked, pending } arrays.
+    const raw = await this.request<unknown>("GET", path);
+    return normalizeTransactionsResponse(raw);
   }
 
   private getConsentValidUntil(maxConsentValidityDays?: number): string {

@@ -5,6 +5,9 @@ import {
   EnableBankingClient,
   getStoredSession,
   isConsentExpired,
+  getAllSessions,
+  findConnectionByAccountId,
+  getConnectionIndex,
 } from "../enable-banking/client";
 
 const CONSENT_EXPIRED_MESSAGE =
@@ -71,37 +74,93 @@ export function createBankingMcpServer(env: Env) {
     "list_accounts",
     {
       description:
-        "List all connected bank accounts. Shows account names, IBANs, currencies, and types.",
-      inputSchema: {},
+        "List all connected bank accounts across all connections. Shows account names, IBANs, currencies, types, and which connection group they belong to.",
+      inputSchema: {
+        group: z
+          .string()
+          .optional()
+          .describe("Filter accounts by connection group/label (e.g., 'Personal', 'Business')"),
+      },
     },
-    async () => {
-      const session = await getStoredSession(env.BANKING_KV);
+    async ({ group }) => {
+      const allSessions = await getAllSessions(env.BANKING_KV);
+      const connectionIndex = await getConnectionIndex(env.BANKING_KV);
 
-      if (!session) {
+      if (allSessions.length === 0) {
         return textContent(
           "No bank account connected. Please visit the setup page at /setup to connect your bank."
         );
       }
 
-      if (isConsentExpired(session)) {
-        return textContent(CONSENT_EXPIRED_MESSAGE);
+      const connections: Array<{
+        group: string;
+        connectionId: string;
+        bank: string;
+        country: string;
+        psuType: string;
+        consentValidUntil: string;
+        consentExpired: boolean;
+        accounts: Array<{
+          id: string;
+          name: string;
+          iban: string;
+          currency: string;
+          type: string;
+        }>;
+      }> = [];
+
+      for (const session of allSessions) {
+        const connInfo = connectionIndex?.connections.find(c => c.id === session.connectionId);
+        const label = connInfo?.label || session.label || (session.connectionId === "default" ? "Default" : session.aspspName);
+        
+        if (group && label.toLowerCase() !== group.toLowerCase()) {
+          continue;
+        }
+        
+        const expired = isConsentExpired(session);
+        
+        connections.push({
+          group: label,
+          connectionId: session.connectionId,
+          bank: session.aspspName,
+          country: session.aspspCountry,
+          psuType: connInfo?.psuType || session.psuType || "personal",
+          consentValidUntil: session.consentValidUntil,
+          consentExpired: expired,
+          accounts: session.accounts.map((acc) => ({
+            id: acc.accountId,
+            name: acc.name || "Unknown",
+            iban: acc.iban || "N/A",
+            currency: acc.currency || "N/A",
+            type: acc.accountType || "N/A",
+          })),
+        });
       }
 
-      const accounts = session.accounts.map((acc) => ({
-        id: acc.accountId,
-        name: acc.name || "Unknown",
-        iban: acc.iban || "N/A",
-        currency: acc.currency || "N/A",
-        type: acc.accountType || "N/A",
-      }));
+      if (connections.length === 0) {
+        return textContent(
+          group 
+            ? `No connection found with group label "${group}". Use list_accounts without a group filter to see all connections.`
+            : "No bank account connected. Please visit the setup page at /setup to connect your bank."
+        );
+      }
+
+      const expiredConnections = connections.filter(c => c.consentExpired);
+      if (expiredConnections.length > 0 && expiredConnections.length === connections.length) {
+        return textContent(
+          `All bank consents have expired. Please reconnect your bank accounts by visiting the setup page at /setup`
+        );
+      }
 
       return textContent(
         JSON.stringify(
           {
-            bank: session.aspspName,
-            country: session.aspspCountry,
-            consentValidUntil: session.consentValidUntil,
-            accounts,
+            totalConnections: connections.length,
+            totalAccounts: connections.reduce((sum, c) => sum + c.accounts.length, 0),
+            connections,
+            ...(expiredConnections.length > 0 ? {
+              warning: `${expiredConnections.length} connection(s) have expired consent: ${expiredConnections.map(c => c.group).join(", ")}`
+            } : {}),
           },
           null,
           2
@@ -114,22 +173,35 @@ export function createBankingMcpServer(env: Env) {
     "get_balances",
     {
       description:
-        "Get the current balance for a specific bank account. Returns all available balance types (e.g., booked, available).",
+        "Get the current balance for a specific bank account. Returns all available balance types (e.g., booked, available). The account_id is automatically resolved to the correct bank connection.",
       inputSchema: {
         account_id: z.string().describe("The account ID to get balances for"),
       },
     },
     async ({ account_id }) => {
-      const session = await getStoredSession(env.BANKING_KV);
+      const result = await findConnectionByAccountId(env.BANKING_KV, account_id);
 
-      if (!session) {
+      if (!result) {
+        const allSessions = await getAllSessions(env.BANKING_KV);
+        if (allSessions.length === 0) {
+          return textContent(
+            "No bank account connected. Please visit /setup to connect your bank."
+          );
+        }
         return textContent(
-          "No bank account connected. Please visit /setup to connect your bank."
+          `Account ${account_id} not found. Use list_accounts to see available accounts.`
         );
       }
 
+      const { session } = result;
+
       if (isConsentExpired(session)) {
-        return textContent(CONSENT_EXPIRED_MESSAGE);
+        const connectionIndex = await getConnectionIndex(env.BANKING_KV);
+        const connInfo = connectionIndex?.connections.find(c => c.id === result.connectionId);
+        const label = connInfo?.label || session.label || session.aspspName;
+        return textContent(
+          `Bank consent for "${label}" has expired. Please reconnect by visiting the setup page at /setup`
+        );
       }
 
       const account = session.accounts.find((a) => a.accountId === account_id);
@@ -142,6 +214,10 @@ export function createBankingMcpServer(env: Env) {
       const client = await EnableBankingClient.create(env);
       const balances = await client.getBalances(account_id);
 
+      const connectionIndex = await getConnectionIndex(env.BANKING_KV);
+      const connInfo = connectionIndex?.connections.find(c => c.id === result.connectionId);
+      const groupLabel = connInfo?.label || session.label || (result.connectionId === "default" ? "Default" : session.aspspName);
+
       const formatted = balances.balances.map((b) => ({
         type: b.balance_type,
         amount: formatAmount(b.balance_amount.amount, b.balance_amount.currency),
@@ -152,6 +228,7 @@ export function createBankingMcpServer(env: Env) {
       return textContent(
         JSON.stringify(
           {
+            group: groupLabel,
             account: account.name || account.iban || account_id,
             balances: formatted,
           },
@@ -166,7 +243,7 @@ export function createBankingMcpServer(env: Env) {
     "get_transactions",
     {
       description:
-        "Get transactions for a bank account within a date range. Supports pagination for large result sets.",
+        "Get transactions for a bank account within a date range. Supports pagination for large result sets. The account_id is automatically resolved to the correct bank connection.",
       inputSchema: {
         account_id: z.string().describe("The account ID to get transactions for"),
         date_from: z
@@ -184,16 +261,29 @@ export function createBankingMcpServer(env: Env) {
       },
     },
     async ({ account_id, date_from, date_to, continuation_key }) => {
-      const session = await getStoredSession(env.BANKING_KV);
+      const result = await findConnectionByAccountId(env.BANKING_KV, account_id);
 
-      if (!session) {
+      if (!result) {
+        const allSessions = await getAllSessions(env.BANKING_KV);
+        if (allSessions.length === 0) {
+          return textContent(
+            "No bank account connected. Please visit /setup to connect your bank."
+          );
+        }
         return textContent(
-          "No bank account connected. Please visit /setup to connect your bank."
+          `Account ${account_id} not found. Use list_accounts to see available accounts.`
         );
       }
 
+      const { session } = result;
+
       if (isConsentExpired(session)) {
-        return textContent(CONSENT_EXPIRED_MESSAGE);
+        const connectionIndex = await getConnectionIndex(env.BANKING_KV);
+        const connInfo = connectionIndex?.connections.find(c => c.id === result.connectionId);
+        const label = connInfo?.label || session.label || session.aspspName;
+        return textContent(
+          `Bank consent for "${label}" has expired. Please reconnect by visiting the setup page at /setup`
+        );
       }
 
       const account = session.accounts.find((a) => a.accountId === account_id);
@@ -210,12 +300,16 @@ export function createBankingMcpServer(env: Env) {
         date_from ||
         new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
-      const result = await client.getTransactions(
+      const txResult = await client.getTransactions(
         account_id,
         fromDate,
         toDate,
         continuation_key
       );
+
+      const connectionIndex = await getConnectionIndex(env.BANKING_KV);
+      const connInfo = connectionIndex?.connections.find(c => c.id === result.connectionId);
+      const groupLabel = connInfo?.label || session.label || (result.connectionId === "default" ? "Default" : session.aspspName);
 
       const formatTx = (tx: Transaction, status: string) => ({
         id: tx.transaction_id || tx.entry_reference || "N/A",
@@ -231,18 +325,19 @@ export function createBankingMcpServer(env: Env) {
       });
 
       const transactions = [
-        ...result.transactions.booked.map((tx) => formatTx(tx, "booked")),
-        ...(result.transactions.pending || []).map((tx) => formatTx(tx, "pending")),
+        ...txResult.transactions.booked.map((tx) => formatTx(tx, "booked")),
+        ...(txResult.transactions.pending || []).map((tx) => formatTx(tx, "pending")),
       ];
 
       return textContent(
         JSON.stringify(
           {
+            group: groupLabel,
             account: account.name || account.iban || account_id,
             dateRange: { from: fromDate, to: toDate },
             transactions,
-            ...(result.continuation_key
-              ? { continuation_key: result.continuation_key }
+            ...(txResult.continuation_key
+              ? { continuation_key: txResult.continuation_key }
               : {}),
           },
           null,
@@ -256,7 +351,7 @@ export function createBankingMcpServer(env: Env) {
     "search_transactions",
     {
       description:
-        "Search transactions by text in counterparty name or description. Case-insensitive.",
+        "Search transactions by text in counterparty name or description. Case-insensitive. The account_id is automatically resolved to the correct bank connection.",
       inputSchema: {
         account_id: z.string().describe("The account ID to search transactions in"),
         query: z.string().describe("Search text to match in counterparty or description"),
@@ -275,17 +370,34 @@ export function createBankingMcpServer(env: Env) {
       },
     },
     async ({ account_id, query, date_from, date_to, limit }) => {
-      const session = await getStoredSession(env.BANKING_KV);
+      const result = await findConnectionByAccountId(env.BANKING_KV, account_id);
 
-      if (!session) {
+      if (!result) {
+        const allSessions = await getAllSessions(env.BANKING_KV);
+        if (allSessions.length === 0) {
+          return textContent(
+            "No bank account connected. Please visit /setup to connect your bank."
+          );
+        }
         return textContent(
-          "No bank account connected. Please visit /setup to connect your bank."
+          `Account ${account_id} not found. Use list_accounts to see available accounts.`
         );
       }
 
+      const { session } = result;
+
       if (isConsentExpired(session)) {
-        return textContent(CONSENT_EXPIRED_MESSAGE);
+        const connectionIndex = await getConnectionIndex(env.BANKING_KV);
+        const connInfo = connectionIndex?.connections.find(c => c.id === result.connectionId);
+        const label = connInfo?.label || session.label || session.aspspName;
+        return textContent(
+          `Bank consent for "${label}" has expired. Please reconnect by visiting the setup page at /setup`
+        );
       }
+
+      const connectionIndex = await getConnectionIndex(env.BANKING_KV);
+      const connInfo = connectionIndex?.connections.find(c => c.id === result.connectionId);
+      const groupLabel = connInfo?.label || session.label || (result.connectionId === "default" ? "Default" : session.aspspName);
 
       const client = await EnableBankingClient.create(env);
       const toDate = date_to || new Date().toISOString().split("T")[0];
@@ -305,14 +417,14 @@ export function createBankingMcpServer(env: Env) {
 
       let continuationKey: string | undefined;
       do {
-        const result = await client.getTransactions(
+        const txResult = await client.getTransactions(
           account_id,
           fromDate,
           toDate,
           continuationKey
         );
 
-        for (const tx of result.transactions.booked) {
+        for (const tx of txResult.transactions.booked) {
           const counterparty = tx.creditor_name || tx.debtor_name || "";
           const description = (tx.remittance_information || []).join(" ");
 
@@ -335,12 +447,13 @@ export function createBankingMcpServer(env: Env) {
           }
         }
 
-        continuationKey = result.continuation_key;
+        continuationKey = txResult.continuation_key;
       } while (continuationKey && matches.length < maxResults);
 
       return textContent(
         JSON.stringify(
           {
+            group: groupLabel,
             query,
             dateRange: { from: fromDate, to: toDate },
             matchCount: matches.length,
@@ -357,7 +470,7 @@ export function createBankingMcpServer(env: Env) {
     "summarize_spending",
     {
       description:
-        "Summarize spending by month and category. Shows total spending, income, and category breakdowns.",
+        "Summarize spending by month and category. Shows total spending, income, and category breakdowns. The account_id is automatically resolved to the correct bank connection.",
       inputSchema: {
         account_id: z.string().describe("The account ID to summarize"),
         month: z
@@ -369,17 +482,34 @@ export function createBankingMcpServer(env: Env) {
       },
     },
     async ({ account_id, month }) => {
-      const session = await getStoredSession(env.BANKING_KV);
+      const result = await findConnectionByAccountId(env.BANKING_KV, account_id);
 
-      if (!session) {
+      if (!result) {
+        const allSessions = await getAllSessions(env.BANKING_KV);
+        if (allSessions.length === 0) {
+          return textContent(
+            "No bank account connected. Please visit /setup to connect your bank."
+          );
+        }
         return textContent(
-          "No bank account connected. Please visit /setup to connect your bank."
+          `Account ${account_id} not found. Use list_accounts to see available accounts.`
         );
       }
 
+      const { session } = result;
+
       if (isConsentExpired(session)) {
-        return textContent(CONSENT_EXPIRED_MESSAGE);
+        const connectionIndex = await getConnectionIndex(env.BANKING_KV);
+        const connInfo = connectionIndex?.connections.find(c => c.id === result.connectionId);
+        const label = connInfo?.label || session.label || session.aspspName;
+        return textContent(
+          `Bank consent for "${label}" has expired. Please reconnect by visiting the setup page at /setup`
+        );
       }
+
+      const connectionIndex = await getConnectionIndex(env.BANKING_KV);
+      const connInfo = connectionIndex?.connections.find(c => c.id === result.connectionId);
+      const groupLabel = connInfo?.label || session.label || (result.connectionId === "default" ? "Default" : session.aspspName);
 
       const client = await EnableBankingClient.create(env);
 
@@ -403,14 +533,14 @@ export function createBankingMcpServer(env: Env) {
       let continuationKey: string | undefined;
 
       do {
-        const result = await client.getTransactions(
+        const txResult = await client.getTransactions(
           account_id,
           fromDate,
           toDate,
           continuationKey
         );
-        allTransactions.push(...result.transactions.booked);
-        continuationKey = result.continuation_key;
+        allTransactions.push(...txResult.transactions.booked);
+        continuationKey = txResult.continuation_key;
       } while (continuationKey);
 
       const spending: Record<string, number> = {};
@@ -443,6 +573,7 @@ export function createBankingMcpServer(env: Env) {
       return textContent(
         JSON.stringify(
           {
+            group: groupLabel,
             period: { from: fromDate, to: toDate },
             transactionCount: allTransactions.length,
             summary: {

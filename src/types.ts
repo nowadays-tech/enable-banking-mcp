@@ -28,6 +28,24 @@ export interface BankSession {
   accounts: BankAccount[];
   createdAt: string;
   updatedAt: string;
+  psuType?: "personal" | "business";
+  label?: string;
+  connectionId?: string;
+}
+
+export interface ConnectionInfo {
+  id: string;
+  label: string;
+  psuType: "personal" | "business";
+  aspspName: string;
+  aspspCountry: string;
+  validUntil: string;
+  createdAt: string;
+}
+
+export interface ConnectionIndex {
+  connections: ConnectionInfo[];
+  updatedAt: string;
 }
 
 export interface BankAccount {
@@ -70,6 +88,7 @@ export interface ASPSP {
   aspsp_id?: string;
   sandbox?: boolean;
   maximum_consent_validity?: number;
+  psu_types_supported?: ("personal" | "business")[];
 }
 
 export interface ASPSPsResponse {

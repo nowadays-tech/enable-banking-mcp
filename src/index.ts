@@ -11,7 +11,13 @@ import {
   storePendingAuth,
   getPendingAuth,
   deletePendingAuth,
+  getConnectionIndex,
+  addConnectionToIndex,
+  removeConnectionFromIndex,
+  getAllSessions,
+  generateConnectionId,
 } from "./enable-banking/client";
+import type { ConnectionInfo } from "./types";
 import {
   storeCredentials,
   getEffectiveCredentials,
@@ -50,16 +56,33 @@ async function buildWizardState(env: Env): Promise<WizardState> {
   const storedCredentialsMeta = await getStoredCredentialsMetadata(env.BANKING_KV);
   const hasCredentials = credentialsFromEnv || storedCredentialsMeta !== null;
   
-  const session = await getStoredSession(env.BANKING_KV);
+  const allSessions = await getAllSessions(env.BANKING_KV);
+  const connectionIndex = await getConnectionIndex(env.BANKING_KV);
+  
+  const connections: WizardState["connections"] = allSessions.map(session => {
+    const connInfo = connectionIndex?.connections.find(c => c.id === session.connectionId);
+    return {
+      id: session.connectionId,
+      label: connInfo?.label || session.label || (session.connectionId === "default" ? "Default" : session.aspspName),
+      psuType: connInfo?.psuType || session.psuType || "personal",
+      aspspName: session.aspspName,
+      aspspCountry: session.aspspCountry,
+      validUntil: session.consentValidUntil,
+      accountCount: session.accounts.length,
+    };
+  });
+  
+  const defaultSession = allSessions.find(s => s.connectionId === "default");
   
   return {
     hasCredentials,
     credentialsFromEnv,
     appId: credentialsFromEnv ? env.ENABLE_BANKING_APP_ID : storedCredentialsMeta?.appId,
-    hasBankSession: session !== null,
-    bankName: session?.aspspName,
-    accountCount: session?.accounts.length,
-    consentExpiry: session?.consentValidUntil,
+    hasBankSession: allSessions.length > 0,
+    bankName: defaultSession?.aspspName,
+    accountCount: defaultSession?.accounts.length,
+    consentExpiry: defaultSession?.consentValidUntil,
+    connections,
   };
 }
 
@@ -173,7 +196,6 @@ async function createSessionCookie(env: Env): Promise<string> {
 
 const createMcpHandlerForEnv = (env: Env) =>
   createMcpHandler(() => createBankingMcpServer(env), {
-    allowedHostnames: ["*"],
     corsOptions: {
       origin: "*",
     },
@@ -538,6 +560,9 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
         const aspspId = formData.get("aspsp_id")?.toString();
         const aspspName = formData.get("aspsp_name")?.toString() || aspspId || "";
         const country = formData.get("country")?.toString();
+        const psuType = (formData.get("psu_type")?.toString() || "personal") as "personal" | "business";
+        const label = formData.get("label")?.toString() || "";
+        const connectionId = formData.get("connection_id")?.toString() || generateConnectionId();
 
         if (!aspspId) {
           return htmlResponse(
@@ -562,11 +587,18 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
             aspspName,
             country,
             redirectUrl,
-            "personal",
+            psuType,
             state
           );
 
-          await storePendingAuth(this.env.BANKING_KV, state, aspspId, aspspName, country);
+          await storePendingAuth(this.env.BANKING_KV, state, {
+            aspspId,
+            aspspName,
+            aspspCountry: country,
+            connectionId,
+            psuType,
+            label: label || aspspName,
+          });
 
           return Response.redirect(auth.url, 302);
         } catch (error) {
@@ -626,9 +658,24 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
           })),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
+          psuType: pendingAuth.psuType,
+          label: pendingAuth.label,
+          connectionId: pendingAuth.connectionId,
         };
 
-        await storeSession(this.env.BANKING_KV, session);
+        await storeSession(this.env.BANKING_KV, session, pendingAuth.connectionId);
+        
+        const connectionInfo: ConnectionInfo = {
+          id: pendingAuth.connectionId,
+          label: pendingAuth.label,
+          psuType: pendingAuth.psuType,
+          aspspName: session.aspspName,
+          aspspCountry: session.aspspCountry,
+          validUntil: session.consentValidUntil,
+          createdAt: session.createdAt,
+        };
+        await addConnectionToIndex(this.env.BANKING_KV, connectionInfo);
+        
         await deletePendingAuth(this.env.BANKING_KV, state);
 
         return htmlResponse(renderCallbackSuccessPage(session));
@@ -648,7 +695,10 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
         return Response.redirect(`${baseUrl}/login`, 302);
       }
 
-      const session = await getStoredSession(this.env.BANKING_KV);
+      const formData = await request.formData();
+      const connectionId = formData.get("connection_id")?.toString() || "default";
+      
+      const session = await getStoredSession(this.env.BANKING_KV, connectionId);
       if (session) {
         try {
           const client = await EnableBankingClient.create(this.env);
@@ -656,7 +706,10 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
         } catch (error) {
           console.error("Failed to delete session at Enable Banking:", error);
         }
-        await deleteStoredSession(this.env.BANKING_KV);
+        await deleteStoredSession(this.env.BANKING_KV, connectionId);
+        if (connectionId !== "default") {
+          await removeConnectionFromIndex(this.env.BANKING_KV, connectionId);
+        }
       }
       
       const wizardState = await buildWizardState(this.env);

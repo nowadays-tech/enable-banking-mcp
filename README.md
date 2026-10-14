@@ -5,6 +5,8 @@ A personal remote MCP (Model Context Protocol) server that connects your bank ac
 ## Features
 
 - **5 MCP Tools**: `list_accounts`, `get_balances`, `get_transactions`, `search_transactions`, `summarize_spending`
+- **Multiple Bank Connections**: Connect multiple banks with custom labels (e.g., "Personal", "Business")
+- **Personal & Business Accounts**: Support for both personal and business (corporate) bank accounts
 - **32 European Countries**: Supports banks across the EU/EEA via Enable Banking
 - **OAuth + Bearer Token Auth**: OAuth for Claude.ai/ChatGPT, Bearer token for Cursor/CLI tools
 - **Guided Setup Wizard**: Step-by-step instructions right in the web UI
@@ -67,8 +69,23 @@ After deployment, visit your worker URL (e.g., `https://enable-banking-mcp.YOUR-
    - The `.pem` private key downloads automatically when you generate it
 3. **Step B**: Enter your App ID and upload the `.pem` file
    - The wizard validates your credentials against the Enable Banking API
-4. **Step C**: Select your country and connect your bank
+4. **Step C**: Connect your bank(s)
+   - Give each connection a label (e.g., "Personal", "Business", "Joint Account")
+   - Choose account type: Personal (individual) or Business (corporate)
+   - Select your country and bank
+   - Add multiple connections to aggregate accounts from different banks
 5. **Step D**: Copy your MCP server URLs for Claude.ai, ChatGPT, or Cursor
+
+### Multiple Bank Connections
+
+You can connect multiple bank accounts from different banks or the same bank with different account types:
+
+- **Personal accounts**: Your individual bank accounts
+- **Business accounts**: Corporate/business bank accounts (where supported by the bank)
+
+Each connection has a custom label that appears in the MCP tool responses, making it easy to identify which accounts belong to which connection (e.g., "Personal - Nordea", "Business - Danske Bank").
+
+To add another connection, visit the setup page and click "Add Another Connection".
 
 ### 3. Add to Your AI Assistant
 
@@ -161,21 +178,22 @@ When set via environment, these take precedence over wizard-configured credentia
 ## MCP Tools
 
 ### `list_accounts`
-Lists all connected bank accounts with names, IBANs, currencies, and account types.
+Lists all connected bank accounts across all connections with names, IBANs, currencies, account types, and connection group labels.
+- `group` (optional): Filter accounts by connection group/label (e.g., "Personal", "Business")
 
 ### `get_balances`
-Gets the current balance for a specific account.
+Gets the current balance for a specific account. Automatically resolves the correct bank connection.
 - `account_id` (required): The account ID from `list_accounts`
 
 ### `get_transactions`
-Retrieves transactions within a date range.
+Retrieves transactions within a date range. Automatically resolves the correct bank connection.
 - `account_id` (required): The account ID
 - `date_from` (optional): Start date (YYYY-MM-DD), defaults to 30 days ago
 - `date_to` (optional): End date (YYYY-MM-DD), defaults to today
 - `continuation_key` (optional): For paginating large result sets
 
 ### `search_transactions`
-Search transactions by text in counterparty name or description.
+Search transactions by text in counterparty name or description. Automatically resolves the correct bank connection.
 - `account_id` (required): The account ID
 - `query` (required): Search text (case-insensitive)
 - `date_from` (optional): Start date, defaults to 90 days ago
@@ -183,7 +201,7 @@ Search transactions by text in counterparty name or description.
 - `limit` (optional): Maximum results, defaults to 50
 
 ### `summarize_spending`
-Summarizes spending by category for a month.
+Summarizes spending by category for a month. Automatically resolves the correct bank connection.
 - `account_id` (required): The account ID
 - `month` (optional): Month in YYYY-MM format, or "last3" for last 3 months
 

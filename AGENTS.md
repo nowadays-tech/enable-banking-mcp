@@ -322,8 +322,22 @@ The user needs to complete the setup wizard at `/setup` and connect a bank befor
 
 Once configured, these tools are available:
 
-- **list_accounts** - List all connected bank accounts
-- **get_balances** - Get current balance for an account
-- **get_transactions** - Retrieve transactions within a date range
-- **search_transactions** - Search transactions by text
-- **summarize_spending** - Summarize spending by category for a month
+- **list_accounts** - List all connected bank accounts across all connections. Supports optional `group` filter to show only accounts from a specific connection label.
+- **get_balances** - Get current balance for an account. Automatically resolves the correct bank connection from the account ID.
+- **get_transactions** - Retrieve transactions within a date range. Automatically resolves the correct bank connection.
+- **search_transactions** - Search transactions by text. Automatically resolves the correct bank connection.
+- **summarize_spending** - Summarize spending by category for a month. Automatically resolves the correct bank connection.
+
+## Multiple Bank Connections
+
+The MCP server supports multiple bank connections, each with:
+- A custom **label** (e.g., "Personal", "Business", "Joint Account")
+- A **PSU type** (personal or business account)
+- Independent consent/session management
+
+This allows users to:
+- Connect both personal and business accounts from the same or different banks
+- Label connections for easy identification in MCP tool responses
+- Renew or disconnect individual connections without affecting others
+
+Existing deployments with a single connection continue to work unchanged - the default connection is preserved with the label "Default".

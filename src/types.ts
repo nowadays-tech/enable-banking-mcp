@@ -142,12 +142,17 @@ export interface Transaction {
   bank_transaction_code?: string;
   proprietary_bank_transaction_code?: string;
   merchant_category_code?: string;
+  /** Enable Banking: "CRDT" (in) or "DBIT" (out); amounts are then unsigned. */
+  credit_debit_indicator?: string;
+  /** Enable Banking flat list: "BOOK", "PDNG", ... */
+  status?: string;
 }
 
 export interface TransactionsResponse {
+  /** Always normalized by the client (see enable-banking/transactions.ts). */
   transactions: {
     booked: Transaction[];
-    pending?: Transaction[];
+    pending: Transaction[];
   };
   continuation_key?: string;
 }

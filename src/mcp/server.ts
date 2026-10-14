@@ -1,3 +1,4 @@
+import { forEachTransactionPage, signedAmount } from "../enable-banking/transactions";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { Env, BankSession, BankAccount, Transaction, ConnectionStatusInfo } from "../types";
@@ -127,8 +128,9 @@ export function appendExpiryWarning(result: string, warning: string | null): str
   return `${result}\n\n---\n${warning}`;
 }
 
-function formatAmount(amount: string, currency: string): string {
+function formatAmount(amount: string, currency?: string): string {
   const num = parseFloat(amount);
+  if (!currency) return Number.isFinite(num) ? num.toFixed(2) : "N/A";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency,
@@ -441,8 +443,8 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null) {
       const formatTx = (tx: Transaction, status: string) => ({
         id: tx.transaction_id || tx.entry_reference || "N/A",
         date: tx.booking_date || tx.value_date || "N/A",
-        amount: formatAmount(tx.transaction_amount.amount, tx.transaction_amount.currency),
-        currency: tx.transaction_amount.currency,
+        amount: formatAmount(String(signedAmount(tx)), tx.transaction_amount?.currency),
+        currency: tx.transaction_amount?.currency ?? "N/A",
         counterparty: tx.creditor_name || tx.debtor_name || "Unknown",
         description: (tx.remittance_information || []).join(", ") || "N/A",
         status,
@@ -456,8 +458,8 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null) {
           accountId: t.account.accountId,
           account: accountName(t),
           transactions: [
-            ...txResult.transactions.booked.map((tx) => formatTx(tx, "booked")),
-            ...(txResult.transactions.pending || []).map((tx) => formatTx(tx, "pending")),
+            ...(txResult.transactions?.booked ?? []).map((tx) => formatTx(tx, "booked")),
+            ...(txResult.transactions?.pending ?? []).map((tx) => formatTx(tx, "pending")),
           ],
           ...(txResult.continuation_key ? { continuation_key: txResult.continuation_key } : {}),
         });
@@ -516,10 +518,8 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null) {
 
       for (const t of targets) {
         if (matches.length >= maxResults) break;
-        let continuationKey: string | undefined;
-        do {
-          const txResult = await client.getTransactions(t.account.accountId, fromDate, toDate, continuationKey);
-          for (const tx of txResult.transactions.booked) {
+        await forEachTransactionPage(client, t.account.accountId, fromDate, toDate, (txResult) => {
+          for (const tx of txResult.transactions?.booked ?? []) {
             const counterparty = tx.creditor_name || tx.debtor_name || "";
             const description = (tx.remittance_information || []).join(" ");
             if (
@@ -529,7 +529,7 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null) {
               matches.push({
                 id: tx.transaction_id || tx.entry_reference || "N/A",
                 date: tx.booking_date || tx.value_date || "N/A",
-                amount: formatAmount(tx.transaction_amount.amount, tx.transaction_amount.currency),
+                amount: formatAmount(String(signedAmount(tx)), tx.transaction_amount?.currency),
                 counterparty: counterparty || "Unknown",
                 description: description || "N/A",
                 ...(account_id ? {} : { group: t.label, accountId: t.account.accountId, account: accountName(t) }),
@@ -537,8 +537,8 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null) {
               if (matches.length >= maxResults) break;
             }
           }
-          continuationKey = txResult.continuation_key;
-        } while (continuationKey && matches.length < maxResults);
+          return matches.length < maxResults;
+        });
       }
 
       const body = withSkipped(
@@ -595,12 +595,9 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null) {
 
       const allTransactions: Transaction[] = [];
       for (const t of targets) {
-        let continuationKey: string | undefined;
-        do {
-          const txResult = await client.getTransactions(t.account.accountId, fromDate, toDate, continuationKey);
-          allTransactions.push(...txResult.transactions.booked);
-          continuationKey = txResult.continuation_key;
-        } while (continuationKey);
+        await forEachTransactionPage(client, t.account.accountId, fromDate, toDate, (txResult) => {
+          allTransactions.push(...(txResult.transactions?.booked ?? []));
+        });
       }
 
       const spending: Record<string, number> = {};
@@ -608,7 +605,7 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null) {
       let totalSpending = 0;
       let totalIncome = 0;
       for (const tx of allTransactions) {
-        const amount = parseFloat(tx.transaction_amount.amount);
+        const amount = signedAmount(tx);
         const category = categorizeTransaction(tx);
         if (amount < 0) {
           const absAmount = Math.abs(amount);

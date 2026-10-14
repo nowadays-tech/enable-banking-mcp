@@ -1025,6 +1025,11 @@ export function renderWizardPage(
             <span>·</span>
             <span>${isExpired ? 'Expired' : `Expires ${expiryDate.toLocaleDateString()}`}</span>
           </div>
+          <form action="/connections/rename" method="POST" class="rename-form" style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
+            <input type="hidden" name="connection_id" value="${escapeHtml(conn.id)}" />
+            <input type="text" name="label" value="${escapeHtml(conn.label)}" maxlength="80" required aria-label="Connection name" style="flex: 1; margin: 0;" />
+            <button type="submit" class="btn-secondary btn-sm">Rename</button>
+          </form>
           <div class="btn-row" style="margin-top: 0.75rem;">
             <form action="/auth/start" method="POST" style="flex: 1;">
               <input type="hidden" name="connection_id" value="${escapeHtml(conn.id)}" />
@@ -1044,7 +1049,7 @@ export function renderWizardPage(
         }).join('')}
         
         <button type="button" class="add-connection-btn" onclick="document.getElementById('addConnectionForm').classList.toggle('hidden')">
-          + Add Another Connection
+          + Add another bank
         </button>
       ` : ''}
       
@@ -1522,7 +1527,7 @@ export function renderConnectedPage(
 </html>`;
 }
 
-export function renderCallbackSuccessPage(session: BankSession, isRenewal?: boolean): string {
+export function renderCallbackSuccessPage(session: BankSession, isRenewal?: boolean, returnTo?: string): string {
   const title = isRenewal ? "Consent Renewed Successfully" : "Bank Connected Successfully";
   const message = isRenewal 
     ? `Your ${escapeHtml(session.aspspName)} connection has been renewed.`
@@ -1548,9 +1553,15 @@ export function renderCallbackSuccessPage(session: BankSession, isRenewal?: bool
     
     ${session.label ? `<p style="font-size: 0.875rem; color: var(--muted-foreground);">Connection label: <strong>${escapeHtml(session.label)}</strong></p>` : ""}
 
+    ${returnTo ? `
+    <a href="${escapeHtml(returnTo)}" style="display: block; text-decoration: none;">
+      <button class="btn-full">Continue authorization</button>
+    </a>
+    <p style="font-size: 0.8125rem; color: var(--muted-foreground); text-align: center;">The new connection can now be ticked on the authorization page.</p>
+    ` : `
     <a href="/setup" style="display: block; text-decoration: none;">
       <button class="btn-full">${buttonText}</button>
-    </a>
+    </a>`}
   </div>
 </body>
 </html>`;
@@ -1593,7 +1604,11 @@ export function renderCallbackErrorPage(error: string, details?: string): string
 </html>`;
 }
 
-export function renderLoginPage(error?: string, returnUrl?: string): string {
+export function renderLoginPage(
+  error?: string,
+  returnUrl?: string,
+  opts: { magicLinkEnabled?: boolean; notice?: string } = {}
+): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1610,12 +1625,16 @@ export function renderLoginPage(error?: string, returnUrl?: string): string {
     </div>
 
     ${error ? `<div class="alert alert-error">${escapeHtml(error)}</div>` : ""}
+    ${opts.notice ? `<div class="alert alert-success">${escapeHtml(opts.notice)}</div>` : ""}
 
     <form method="POST">
       ${returnUrl ? `<input type="hidden" name="return" value="${escapeHtml(returnUrl)}" />` : ""}
       <label for="password">Password</label>
       <input type="password" id="password" name="password" required autofocus />
       <button type="submit" class="btn-full">Login</button>
+      ${opts.magicLinkEnabled ? `
+      <button type="submit" name="action" value="magic" formnovalidate class="btn-secondary btn-full" style="margin-top: 0.5rem;">Email me a login link</button>
+      ` : ""}
     </form>
 
     <p style="font-size: 0.8125rem; margin-top: 1rem; text-align: center; color: var(--muted-foreground);">
@@ -1868,16 +1887,79 @@ export function renderErrorPage(title: string, message: string, showRetry = true
 </html>`;
 }
 
+export interface ConsentConnection {
+  id: string;
+  label: string;
+  aspspName: string;
+  psuType: "personal" | "business";
+  accountCount: number;
+  validUntil: string;
+}
+
+export interface ConsentPageOptions {
+  /** Present once logged in: the bank connections to pick from. */
+  connections?: ConsentConnection[];
+  /** Pre-ticked connection ids (default: all). */
+  selected?: string[];
+  magicLinkEnabled?: boolean;
+  notice?: string;
+}
+
+/**
+ * OAuth consent page. Step 1 (requirePassword): log in with the password or an
+ * emailed magic link. Step 2: pick which bank connections the client may see,
+ * optionally add a new bank, then approve.
+ */
 export function renderConsentPage(
   clientName: string,
   scopes: string[],
   handle: string,
   requirePassword: boolean,
-  error?: string
+  error?: string,
+  opts: ConsentPageOptions = {}
 ): string {
   const scopeDescriptions: Record<string, string> = {
     "banking:read": "Read your bank accounts, balances, and transactions",
   };
+  const connections = opts.connections || [];
+  const selected = opts.selected ? new Set(opts.selected) : null;
+
+  const loginSection = `
+      <div style="margin-bottom: 1rem;">
+        <label for="password">Enter your password to continue</label>
+        <input type="password" id="password" name="password" autofocus placeholder="Your AUTH_SECRET password" />
+      </div>
+      <div class="btn-row">
+        <button type="submit" name="action" value="login" style="flex: 2;">Log in</button>
+        <button type="submit" name="action" value="deny" class="btn-secondary" style="flex: 1;">Deny</button>
+      </div>
+      ${opts.magicLinkEnabled ? `
+      <div style="text-align: center; margin: 1rem 0 0.5rem; font-size: 0.8125rem; color: var(--muted-foreground);">or</div>
+      <button type="submit" name="action" value="magic" class="btn-secondary btn-full">Email me a login link</button>
+      ` : ""}`;
+
+  const pickerSection = `
+      <input type="hidden" name="picker" value="1" />
+      <div class="alert alert-success" style="margin-bottom: 1rem;">You are already logged in</div>
+      <div class="card">
+        <h3>Bank connections ${escapeHtml(clientName)} can access</h3>
+        ${connections.length === 0 ? `
+          <p style="font-size: 0.875rem; color: var(--muted-foreground); margin: 0;">No banks connected yet. Add one below, or approve now and add banks later.</p>
+        ` : connections.map((c) => `
+          <label class="consent-conn" style="display: flex; gap: 0.75rem; align-items: flex-start; padding: 0.625rem 0; border-bottom: 1px solid var(--border); cursor: pointer; font-weight: normal;">
+            <input type="checkbox" name="connection" value="${escapeHtml(c.id)}" ${!selected || selected.has(c.id) ? "checked" : ""} style="width: auto; margin-top: 0.2rem;" />
+            <span>
+              <strong>${escapeHtml(c.label)}</strong><br />
+              <span style="font-size: 0.8125rem; color: var(--muted-foreground);">${escapeHtml(c.aspspName)} · ${c.psuType === "business" ? "Business" : "Personal"} · ${c.accountCount} account${c.accountCount !== 1 ? "s" : ""}</span>
+            </span>
+          </label>`).join("")}
+        <p style="font-size: 0.75rem; color: var(--muted-foreground); margin: 0.75rem 0 0;">Leave all ticked to also include banks you add later.</p>
+        <button type="submit" name="action" value="add_bank" formnovalidate class="btn-secondary btn-full" style="margin-top: 0.75rem;">+ Add new bank connection</button>
+      </div>
+      <div class="btn-row">
+        <button type="submit" name="action" value="approve" style="flex: 2;">Allow Access</button>
+        <button type="submit" name="action" value="deny" class="btn-secondary" style="flex: 1;">Deny</button>
+      </div>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1895,6 +1977,7 @@ export function renderConsentPage(
     </div>
 
     ${error ? `<div class="alert alert-error">${escapeHtml(error)}</div>` : ""}
+    ${opts.notice ? `<div class="alert alert-success">${escapeHtml(opts.notice)}</div>` : ""}
 
     <div class="card">
       <h3>Requested Permissions</h3>
@@ -1909,29 +1992,39 @@ export function renderConsentPage(
 
     <form method="POST">
       <input type="hidden" name="handle" value="${escapeHtml(handle)}" />
-      
-      ${requirePassword ? `
-        <div style="margin-bottom: 1rem;">
-          <label for="password">Enter your password to authorize</label>
-          <input type="password" id="password" name="password" required autofocus placeholder="Your AUTH_SECRET password" />
-        </div>
-      ` : `
-        <div class="alert alert-success" style="margin-bottom: 1rem;">You are already logged in</div>
-      `}
-
-      <div class="btn-row">
-        <button type="submit" name="action" value="approve" style="flex: 2;">
-          ${requirePassword ? "Authorize" : "Allow Access"}
-        </button>
-        <button type="submit" name="action" value="deny" class="btn-secondary" style="flex: 1;">
-          Deny
-        </button>
-      </div>
+      ${requirePassword ? loginSection : pickerSection}
     </form>
 
     <p style="font-size: 0.75rem; color: var(--muted-foreground); margin-top: 1.5rem; text-align: center;">
       This is your personal banking MCP server. Only authorize clients you trust.
     </p>
+  </div>
+</body>
+</html>`;
+}
+
+/** Confirm page for an emailed magic link (POST consumes the one-time token). */
+export function renderMagicLinkPage(token: string, valid: boolean): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Enable Banking MCP - Log in</title>
+  <style>${baseStyles}</style>
+</head>
+<body>
+  <div class="container">
+    <div class="page-header">
+      <h1>${valid ? "Log in" : "Link expired"}</h1>
+      <p class="subtitle">${valid ? "Continue to your banking MCP server" : "This login link has expired or was already used. Request a new one."}</p>
+    </div>
+    ${valid ? `
+    <form method="POST" action="/auth/magic">
+      <input type="hidden" name="token" value="${escapeHtml(token)}" />
+      <button type="submit" class="btn-full">Continue</button>
+    </form>` : `
+    <a href="/login" style="display: block; text-decoration: none;"><button class="btn-full">Back to login</button></a>`}
   </div>
 </body>
 </html>`;
@@ -1944,9 +2037,11 @@ export function renderConnectPage(
   country: string,
   banks: ASPSP[],
   token: string,
-  searchQuery?: string
+  searchQuery?: string,
+  opts: { editable?: boolean; countries?: string[]; returnTo?: string } = {}
 ): string {
   const countryName = getCountryDisplayName(country);
+  const editable = Boolean(opts.editable);
   
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1960,9 +2055,17 @@ export function renderConnectPage(
   <div class="container">
     <div class="page-header">
       <h1>Connect Bank</h1>
-      <p class="subtitle">Adding connection: <strong>${escapeHtml(label)}</strong></p>
+      <p class="subtitle">${editable ? "Add a new bank connection" : `Adding connection: <strong>${escapeHtml(label)}</strong>`}</p>
     </div>
 
+    ${editable ? `
+    <div class="field-group">
+      <label for="countrySelect">Country</label>
+      <select id="countrySelect" onchange="location.href='/connect?token=${encodeURIComponent(token)}&country=' + this.value">
+        ${(opts.countries || [country]).map((c) => `<option value="${escapeHtml(c)}" ${c === country ? "selected" : ""}>${escapeHtml(getCountryDisplayName(c))}</option>`).join("")}
+      </select>
+    </div>
+    ` : `
     <div class="card">
       <div class="info-row">
         <span class="info-label">Label</span>
@@ -1976,12 +2079,24 @@ export function renderConnectPage(
         <span class="info-label">Country</span>
         <span class="info-value">${escapeHtml(countryName)}</span>
       </div>
-    </div>
+    </div>`}
 
     <form id="connectForm" action="/auth/connect" method="POST">
       <input type="hidden" name="token" value="${escapeHtml(token)}" />
-      <input type="hidden" name="psu_type" value="${escapeHtml(psuType)}" />
       <input type="hidden" name="country" value="${escapeHtml(country)}" />
+      ${editable ? `
+      <div class="field-group">
+        <label for="label">Connection Label</label>
+        <input type="text" id="label" name="label" maxlength="80" placeholder="e.g., Personal, Holm Friis Holding" />
+      </div>
+      <div class="field-group">
+        <label for="psuTypeSelect">Account Type</label>
+        <select id="psuTypeSelect" name="psu_type">
+          <option value="personal" ${psuType !== "business" ? "selected" : ""}>Personal</option>
+          <option value="business" ${psuType === "business" ? "selected" : ""}>Business</option>
+        </select>
+      </div>
+      ` : `<input type="hidden" name="psu_type" value="${escapeHtml(psuType)}" />`}
       
       <div class="section-group">
         <label for="bankSearch">Select Bank</label>
@@ -2001,6 +2116,7 @@ export function renderConnectPage(
     <p style="font-size: 0.8125rem; color: var(--muted-foreground); margin-top: 1rem; text-align: center;">
       You will be redirected to your bank to authorize access.
     </p>
+    ${opts.returnTo ? `<p style="text-align: center; font-size: 0.8125rem;"><a href="${escapeHtml(opts.returnTo)}">Cancel and go back</a></p>` : ""}
   </div>
 
   <script>

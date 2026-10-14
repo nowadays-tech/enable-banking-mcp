@@ -20,11 +20,21 @@ import {
   ensureBaseUrl,
   getConnectRequest,
   deleteConnectRequest,
+  storeConnectRequest,
   type ConnectRequest,
   getConnectionId,
   getConnectionLabel,
+  renameConnection,
 } from "./enable-banking/client";
 import type { ConnectionInfo } from "./types";
+import { buildScopeProps, addToScope, type TokenProps } from "./scope";
+import {
+  magicLinkEnabled,
+  sendMagicLink,
+  consumeMagicLink,
+  peekMagicLink,
+  safeReturnPath,
+} from "./auth/magic-link";
 import {
   storeCredentials,
   getEffectiveCredentials,
@@ -49,6 +59,7 @@ import {
   renderTermsPage,
   renderErrorPage,
   renderConnectPage,
+  renderMagicLinkPage,
   type WizardState,
 } from "./ui/pages";
 
@@ -214,12 +225,14 @@ export const MCP_HANDLER_OPTIONS = {
   },
 };
 
-export const createMcpHandlerForEnv = (env: Env) =>
-  createMcpHandler(() => createBankingMcpServer(env), MCP_HANDLER_OPTIONS);
+export const createMcpHandlerForEnv = (env: Env, props?: TokenProps | null) =>
+  createMcpHandler(() => createBankingMcpServer(env, props), MCP_HANDLER_OPTIONS);
 
 export class McpApiHandler extends WorkerEntrypoint<Env> {
   async fetch(request: Request): Promise<Response> {
-    return createMcpHandlerForEnv(this.env)(request, this.env, this.ctx);
+    // OAuth token props (userId, scopeGroups, scopeKey) set by the OAuth provider.
+    const props = (this.ctx as unknown as { props?: TokenProps }).props;
+    return createMcpHandlerForEnv(this.env, props)(request, this.env, this.ctx);
   }
 }
 
@@ -246,27 +259,50 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
     return this.handleSetupRoutes(request);
   }
 
+  private async consentConnections() {
+    const state = await buildWizardState(this.env);
+    return state.connections || [];
+  }
+
+  private async renderConsent(
+    request: Request,
+    loggedIn: boolean,
+    opts: { error?: string; notice?: string; status?: number; selected?: string[] } = {}
+  ): Promise<Response> {
+    const oauthHelpers = this.env.OAUTH_PROVIDER;
+    const authRequest = await oauthHelpers.parseAuthRequest(request);
+    const consentDesc = await oauthHelpers.describeConsent(authRequest);
+    const { handle, headers } = await oauthHelpers.beginConsent(authRequest);
+    return htmlResponse(
+      renderConsentPage(
+        consentDesc.clientName || "MCP Client",
+        consentDesc.scope || ["banking:read"],
+        handle,
+        !loggedIn,
+        opts.error,
+        {
+          connections: loggedIn ? await this.consentConnections() : undefined,
+          selected: opts.selected,
+          magicLinkEnabled: magicLinkEnabled(this.env),
+          notice: opts.notice,
+        }
+      ),
+      opts.status || 200,
+      headers
+    );
+  }
+
   private async handleAuthorize(request: Request): Promise<Response> {
     const oauthHelpers = this.env.OAUTH_PROVIDER;
+    const url = new URL(request.url);
+    const authorizeUrl = `/authorize${url.search}`;
 
     try {
-      const authRequest = await oauthHelpers.parseAuthRequest(request);
-
       if (request.method === "GET") {
+        // Validate the OAuth request up front (throws AuthorizationError if invalid).
+        await oauthHelpers.parseAuthRequest(request);
         const isAuthenticated = await validateSessionAuth(request, this.env);
-        const consentDesc = await oauthHelpers.describeConsent(authRequest);
-        const { handle, headers } = await oauthHelpers.beginConsent(authRequest);
-
-        return htmlResponse(
-          renderConsentPage(
-            consentDesc.clientName || "MCP Client",
-            consentDesc.scope || ["banking:read"],
-            handle,
-            !isAuthenticated
-          ),
-          200,
-          headers
-        );
+        return await this.renderConsent(request, isAuthenticated);
       }
 
       if (request.method === "POST") {
@@ -282,30 +318,78 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
           return new Response(null, { status: 302, headers: responseHeaders });
         }
 
-        const isSessionAuth = await validateSessionAuth(request, this.env);
-        let isAuthorized = isSessionAuth;
+        if (action === "magic") {
+          try {
+            const result = await sendMagicLink(this.env, getBaseUrl(request), authorizeUrl);
+            const notice =
+              result === "disabled"
+                ? undefined
+                : result === "rate_limited"
+                  ? "A login link was sent less than a minute ago. Check your email."
+                  : "Check your email for a login link. Open it in this browser to continue.";
+            return await this.renderConsent(request, false, {
+              notice,
+              error: result === "disabled" ? "Email login is not configured." : undefined,
+            });
+          } catch (error) {
+            console.error("Magic link error:", error);
+            return await this.renderConsent(request, false, {
+              error: "Could not send the login email. Use your password instead.",
+              status: 500,
+            });
+          }
+        }
 
+        let isAuthorized = await validateSessionAuth(request, this.env);
+        let newCookie: string | null = null;
         if (!isAuthorized && password) {
           isAuthorized = await constantTimeCompare(password, this.env.AUTH_SECRET);
+          if (isAuthorized) newCookie = await createSessionCookie(this.env);
         }
 
         if (!isAuthorized) {
-          const newAuthRequest = await oauthHelpers.parseAuthRequest(request);
-          const consentDesc = await oauthHelpers.describeConsent(newAuthRequest);
-          const newConsent = await oauthHelpers.beginConsent(newAuthRequest);
-
-          return htmlResponse(
-            renderConsentPage(
-              consentDesc.clientName || "MCP Client",
-              consentDesc.scope || ["banking:read"],
-              newConsent.handle,
-              true,
-              "Invalid password. Please try again."
-            ),
-            401,
-            newConsent.headers
-          );
+          return await this.renderConsent(request, false, {
+            error: "Invalid password. Please try again.",
+            status: 401,
+          });
         }
+
+        if (action === "login") {
+          // Logged in: show the connection picker on a fresh consent page.
+          const headers = new Headers({ Location: authorizeUrl });
+          if (newCookie) headers.append("Set-Cookie", newCookie);
+          return new Response(null, { status: 303, headers });
+        }
+
+        if (action === "add_bank") {
+          const token = crypto.randomUUID();
+          await storeConnectRequest(this.env.BANKING_KV, token, {
+            label: "",
+            psuType: "personal",
+            country: "DK",
+            createdAt: Date.now(),
+            editable: true,
+            returnTo: authorizeUrl,
+          });
+          const headers = new Headers({ Location: `/connect?token=${encodeURIComponent(token)}` });
+          if (newCookie) headers.append("Set-Cookie", newCookie);
+          return new Response(null, { status: 303, headers });
+        }
+
+        // approve
+        const connections = await this.consentConnections();
+        const allIds = connections.map((c) => c.id);
+        // A password-only approval (old single-step form) never saw the picker: grant all.
+        const sawPicker = formData.get("picker") === "1";
+        const selected = sawPicker ? formData.getAll("connection").map(String) : allIds;
+        if (sawPicker && allIds.length > 0 && selected.length === 0) {
+          return await this.renderConsent(request, true, {
+            error: "Select at least one bank connection.",
+            status: 400,
+            selected,
+          });
+        }
+        const props = buildScopeProps("owner", selected, allIds);
 
         const { request: approvedRequest, headers } = await oauthHelpers.approveConsent(
           request,
@@ -315,14 +399,15 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
 
         const { redirectTo } = await oauthHelpers.completeAuthorization({
           request: approvedRequest,
-          userId: "owner",
-          metadata: { role: "owner" },
+          userId: props.userId || "owner",
+          metadata: { role: "owner", scopeGroups: props.scopeGroups || "all" },
           scope: approvedRequest.scope,
-          props: { userId: "owner" },
+          props,
         });
 
         const responseHeaders = new Headers(headers);
         responseHeaders.set("Location", redirectTo);
+        if (newCookie) responseHeaders.append("Set-Cookie", newCookie);
         return new Response(null, { status: 302, headers: responseHeaders });
       }
     } catch (error) {
@@ -355,9 +440,14 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
   private async handleConnectFlow(
     connectRequest: ConnectRequest,
     token: string,
-    baseUrl: string
+    baseUrl: string,
+    countryOverride?: string | null
   ): Promise<Response> {
-    const { label, psuType, country, bankName } = connectRequest;
+    const { label, psuType, bankName } = connectRequest;
+    const country =
+      connectRequest.editable && countryOverride && /^[A-Z]{2}$/.test(countryOverride.toUpperCase())
+        ? countryOverride.toUpperCase()
+        : connectRequest.country;
 
     try {
       const client = await EnableBankingClient.create(this.env);
@@ -373,9 +463,10 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
         }
       }
 
-      if (matchedBank) {
+      if (matchedBank && !connectRequest.editable) {
         return await this.startConnectAuthorization(
           token,
+          connectRequest,
           matchedBank.aspsp_id || matchedBank.name,
           matchedBank.name,
           country,
@@ -386,7 +477,11 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
       }
 
       return htmlResponse(
-        renderConnectPage(baseUrl, label, psuType, country, banks, token, bankName)
+        renderConnectPage(baseUrl, label, psuType, country, banks, token, bankName, {
+          editable: connectRequest.editable,
+          countries: COUNTRIES,
+          returnTo: connectRequest.returnTo,
+        })
       );
     } catch (error) {
       console.error("Failed to handle connect flow:", error);
@@ -397,6 +492,7 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
 
   private async startConnectAuthorization(
     token: string,
+    connectRequest: ConnectRequest,
     aspspId: string,
     aspspName: string,
     country: string,
@@ -420,6 +516,8 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
       connectionId: generateConnectionId(),
       psuType,
       label: label || aspspName,
+      ...(connectRequest.scopeKey ? { scopeKey: connectRequest.scopeKey } : {}),
+      ...(connectRequest.returnTo ? { returnTo: safeReturnPath(connectRequest.returnTo) } : {}),
     });
     await deleteConnectRequest(this.env.BANKING_KV, token);
     return Response.redirect(auth.url, 302);
@@ -442,7 +540,9 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
       const returnUrl = url.searchParams.get("return");
       
       if (request.method === "GET") {
-        return htmlResponse(renderLoginPage(undefined, returnUrl || undefined));
+        return htmlResponse(
+          renderLoginPage(undefined, returnUrl || undefined, { magicLinkEnabled: magicLinkEnabled(this.env) })
+        );
       }
 
       if (request.method === "POST") {
@@ -451,8 +551,30 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
         const formReturnUrl = formData.get("return")?.toString();
 
         const isValid = await constantTimeCompare(password, this.env.AUTH_SECRET);
+        if (formData.get("action")?.toString() === "magic") {
+          let notice: string | undefined;
+          let error: string | undefined;
+          try {
+            const result = await sendMagicLink(this.env, baseUrl, safeReturnPath(formReturnUrl));
+            if (result === "sent") notice = "Check your email for a login link.";
+            else if (result === "rate_limited") notice = "A login link was sent less than a minute ago. Check your email.";
+            else error = "Email login is not configured.";
+          } catch (e) {
+            console.error("Magic link error:", e);
+            error = "Could not send the login email. Use your password instead.";
+          }
+          return htmlResponse(
+            renderLoginPage(error, formReturnUrl || undefined, { magicLinkEnabled: magicLinkEnabled(this.env), notice })
+          );
+        }
+
         if (!isValid) {
-          return htmlResponse(renderLoginPage("Invalid password. Please try again.", formReturnUrl || undefined), 401);
+          return htmlResponse(
+            renderLoginPage("Invalid password. Please try again.", formReturnUrl || undefined, {
+              magicLinkEnabled: magicLinkEnabled(this.env),
+            }),
+            401
+          );
         }
 
         const sessionCookie = await createSessionCookie(this.env);
@@ -467,7 +589,50 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
       }
     }
 
+    if (path === "/auth/magic") {
+      // GET shows a confirm button so link scanners/prefetchers can't use up the one-time token.
+      if (request.method === "GET") {
+        const token = url.searchParams.get("token") || "";
+        const valid = await peekMagicLink(this.env.BANKING_KV, token);
+        return htmlResponse(renderMagicLinkPage(token, valid), valid ? 200 : 400);
+      }
+      if (request.method === "POST") {
+        const formData = await request.formData();
+        const data = await consumeMagicLink(this.env.BANKING_KV, formData.get("token")?.toString() || "");
+        if (!data || data.email !== this.env.OWNER_EMAIL) {
+          return htmlResponse(renderMagicLinkPage("", false), 400);
+        }
+        const sessionCookie = await createSessionCookie(this.env);
+        return new Response(null, {
+          status: 303,
+          headers: { Location: safeReturnPath(data.returnTo), "Set-Cookie": sessionCookie },
+        });
+      }
+      return new Response("Method not allowed", { status: 405 });
+    }
+
     const isAuthenticated = await validateSessionAuth(request, this.env);
+
+    if (path === "/connections/rename" && request.method === "POST") {
+      if (!isAuthenticated) {
+        return Response.redirect(`${baseUrl}/login`, 302);
+      }
+      const formData = await request.formData();
+      const connectionId = formData.get("connection_id")?.toString() || "";
+      const label = (formData.get("label")?.toString() || "").trim().slice(0, 80);
+      const ok = label ? await renameConnection(this.env.BANKING_KV, connectionId, label) : false;
+      const wizardState = await buildWizardState(this.env);
+      return htmlResponse(
+        renderWizardPage(
+          baseUrl,
+          wizardState,
+          COUNTRIES,
+          ok ? undefined : "Could not rename: connection not found or empty name",
+          ok ? `Renamed to "${label}"` : undefined
+        ),
+        ok ? 200 : 400
+      );
+    }
 
     if (path === "/connect") {
       const token = url.searchParams.get("token");
@@ -488,7 +653,7 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
         const returnUrl = encodeURIComponent(`/connect?token=${encodeURIComponent(token)}`);
         return Response.redirect(`${baseUrl}/login?return=${returnUrl}`, 302);
       }
-      return this.handleConnectFlow(connectRequest, token, baseUrl);
+      return this.handleConnectFlow(connectRequest, token, baseUrl, url.searchParams.get("country"));
     }
 
     if (path === "/auth/connect") {
@@ -523,14 +688,16 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
       }
       const country = formData.get("country")?.toString() || connectRequest.country;
       const psuType = (formData.get("psu_type")?.toString() || connectRequest.psuType || "personal") as "personal" | "business";
+      const formLabel = connectRequest.editable ? formData.get("label")?.toString().trim() : "";
       try {
         return await this.startConnectAuthorization(
           token,
+          connectRequest,
           aspspId,
           aspspName,
           country,
           psuType,
-          connectRequest.label,
+          formLabel || connectRequest.label,
           baseUrl
         );
       } catch (error) {
@@ -899,11 +1066,20 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
           createdAt: session.createdAt,
         };
         await addConnectionToIndex(this.env.BANKING_KV, connectionInfo);
+        if (pendingAuth.scopeKey) {
+          await addToScope(this.env.BANKING_KV, pendingAuth.scopeKey, pendingAuth.connectionId);
+        }
         
         await deletePendingAuth(this.env.BANKING_KV, state);
 
         const isRenewal = pendingAuth.isRenewal;
-        return htmlResponse(renderCallbackSuccessPage(session, isRenewal));
+        return htmlResponse(
+          renderCallbackSuccessPage(
+            session,
+            isRenewal,
+            pendingAuth.returnTo ? safeReturnPath(pendingAuth.returnTo) : undefined
+          )
+        );
       } catch (error) {
         console.error("Failed to create session:", error);
         return htmlResponse(

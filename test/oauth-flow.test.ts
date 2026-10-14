@@ -118,10 +118,13 @@ describe("Consent Page Rendering", () => {
     expect(html).toContain("&lt;script&gt;");
   });
 
-  it("should include approve and deny buttons", () => {
-    const html = renderConsentPage("Test Client", ["banking:read"], "handle123", true);
-    expect(html).toContain('value="approve"');
-    expect(html).toContain('value="deny"');
+  it("login step offers log in and deny; picker step offers approve and deny", () => {
+    const login = renderConsentPage("Test Client", ["banking:read"], "handle123", true);
+    expect(login).toContain('value="login"');
+    expect(login).toContain('value="deny"');
+    const picker = renderConsentPage("Test Client", ["banking:read"], "handle123", false);
+    expect(picker).toContain('value="approve"');
+    expect(picker).toContain('value="deny"');
   });
 });
 

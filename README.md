@@ -193,33 +193,24 @@ Returns for each connection:
 
 > **Note:** Adding another MCP client (e.g., authorizing Claude.ai after ChatGPT) does NOT add a new bank connection. To connect additional banks, use the `add_bank_connection` tool or visit `/setup`.
 
+### `list_connections`
+Lists the bank connections this client can access: `id`, `label`, `bank`, `country`, `psuType`, `expiresAt`, `daysLeft`, `status`, `accountCount`, `renewUrl`. Use the label or id as the `group` filter in other tools.
+
 ### `list_accounts`
-Lists all connected bank accounts across all connections with names, IBANs, currencies, account types, and connection group labels.
-- `group` (optional): Filter accounts by connection group/label (e.g., "Personal", "Business")
+Lists connected bank accounts across the connections this client can access, with names, IBANs, currencies, account types, and connection group labels.
+- `group` (optional): Filter by connection label (e.g., "Personal", "Business") or connection id
 
-### `get_balances`
-Gets the current balance for a specific account. Automatically resolves the correct bank connection.
-- `account_id` (required): The account ID from `list_accounts`
+### Data tools: `get_balances`, `get_transactions`, `search_transactions`, `summarize_spending`
+Every data tool takes the same optional filters:
+- `account_id` (optional): One account from `list_accounts`. Omit it to use **all accounts** this client can access
+- `group` (optional): Only use one connection (label or id)
 
-### `get_transactions`
-Retrieves transactions within a date range. Automatically resolves the correct bank connection.
-- `account_id` (required): The account ID
-- `date_from` (optional): Start date (YYYY-MM-DD), defaults to 30 days ago
-- `date_to` (optional): End date (YYYY-MM-DD), defaults to today
-- `continuation_key` (optional): For paginating large result sets
+Without `account_id`, `get_balances` and `get_transactions` return a per-account list, `search_transactions` searches across accounts (each match carries its group and account), and `summarize_spending` combines all accounts. Expired connections are skipped and listed under `skippedExpiredConnections`.
 
-### `search_transactions`
-Search transactions by text in counterparty name or description. Automatically resolves the correct bank connection.
-- `account_id` (required): The account ID
-- `query` (required): Search text (case-insensitive)
-- `date_from` (optional): Start date, defaults to 90 days ago
-- `date_to` (optional): End date, defaults to today
-- `limit` (optional): Maximum results, defaults to 50
-
-### `summarize_spending`
-Summarizes spending by category for a month. Automatically resolves the correct bank connection.
-- `account_id` (required): The account ID
-- `month` (optional): Month in YYYY-MM format, or "last3" for last 3 months
+Tool-specific parameters:
+- `get_transactions`: `date_from` (default 30 days ago), `date_to` (default today), `continuation_key` (pagination; requires `account_id`)
+- `search_transactions`: `query` (required, case-insensitive), `date_from` (default 90 days ago), `date_to`, `limit` (default 50)
+- `summarize_spending`: `month` (YYYY-MM, default current month, or "last3")
 
 ### Consent Expiry Warnings
 
@@ -237,6 +228,8 @@ Start adding a new bank connection from chat. Returns a URL that, after password
 - `country` (optional): Two-letter country code (e.g., "DK", "SE"). Defaults to "DK"
 - `bank` (optional): Bank name to pre-select. If it matches exactly one bank, skips bank selection
 
+If the calling client is limited to some connections (see [Per-client bank access](#per-client-bank-access)), the new connection is added to its access automatically.
+
 ## Configuration
 
 ### Environment Variables (Secrets)
@@ -246,6 +239,14 @@ Start adding a new bank connection from chat. Returns a URL that, after password
 | `AUTH_SECRET` | **Yes** | Password for web UI login, OAuth consent, and bearer token auth |
 | `ENABLE_BANKING_APP_ID` | No | Your Enable Banking application ID (can be set via setup wizard) |
 | `ENABLE_BANKING_PRIVATE_KEY` | No | RSA private key PEM (can be set via setup wizard) |
+| `RESEND_API_KEY` | No | [Resend](https://resend.com) API key. Together with `OWNER_EMAIL`, enables email magic-link login |
+
+### Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OWNER_EMAIL` | No | The only address login links are sent to. Magic-link login is offered only when this and `RESEND_API_KEY` are set |
+| `MAGIC_LINK_FROM` | No | Sender for login emails. Defaults to `Enable Banking MCP <bank@updates.lab.nowadays.tech>`; the domain must be verified in Resend |
 
 When Enable Banking credentials are set via environment variables, they take precedence over credentials configured through the setup wizard.
 
@@ -268,10 +269,18 @@ When configured via the setup wizard, your Enable Banking private key is:
 
 This server supports two authentication methods:
 
-### OAuth 2.0 (for Claude.ai, ChatGPT)
+### OAuth 2.0 (for Claude.ai, ChatGPT, Grok)
 - Supports dynamic client registration (MCP spec compliant)
-- Single-owner consent screen where you enter your `AUTH_SECRET`
+- Single-owner consent screen: log in with your `AUTH_SECRET`, or with an emailed one-time login link (15 min) when `RESEND_API_KEY` and `OWNER_EMAIL` are set
 - Endpoints: `/authorize`, `/token`, `/register`
+
+### Per-client bank access
+After logging in, the consent screen lists your bank connections as checkboxes (all ticked by default) and has a **+ Add new bank connection** button that runs bank selection and bank login (e.g. MitID) and then returns to the consent screen.
+- All ticked: the client sees every connection, including ones added later (token props have no `scopeGroups`)
+- A subset: the token's props store `scopeGroups` (connection ids), and every tool enforces it server-side
+- Tokens issued before this feature have no `scopeGroups` and keep seeing all connections
+
+Rename a connection (e.g. "Default" → "Personal") on `/setup`.
 
 ### Bearer Token (for Cursor, CLI tools)
 - Simple: use your `AUTH_SECRET` as the bearer token

@@ -100,7 +100,7 @@ describe("add_bank_connection", () => {
     names.push(...Object.keys(handlers));
     expect(names.sort()).toEqual([
       "add_bank_connection", "connection_status", "get_balances", "get_transactions",
-      "list_accounts", "search_transactions", "summarize_spending",
+      "list_accounts", "list_connections", "search_transactions", "summarize_spending",
     ]);
   });
 });

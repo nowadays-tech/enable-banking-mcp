@@ -249,6 +249,25 @@ export async function removeConnectionFromIndex(
   await storeConnectionIndex(kv, index);
 }
 
+/** Rename a connection (index entry and stored session). Returns false if not found. */
+export async function renameConnection(
+  kv: KVNamespace,
+  connectionId: string,
+  label: string
+): Promise<boolean> {
+  const session = await getStoredSession(kv, connectionId);
+  if (!session) return false;
+  await storeSession(kv, { ...session, label, updatedAt: new Date().toISOString() }, connectionId);
+  const index = await getConnectionIndex(kv);
+  const entry = index?.connections.find((c) => c.id === connectionId);
+  if (index && entry) {
+    entry.label = label;
+    index.updatedAt = new Date().toISOString();
+    await storeConnectionIndex(kv, index);
+  }
+  return true;
+}
+
 export async function getAllSessions(
   kv: KVNamespace
 ): Promise<Array<import("../types").BankSession & { connectionId: string }>> {
@@ -396,6 +415,10 @@ export interface PendingAuthData {
   psuType: "personal" | "business";
   label: string;
   isRenewal?: boolean;
+  /** Scoped token that started this connection; the new connection joins its scope. */
+  scopeKey?: string;
+  /** Relative URL to continue at after the bank callback (e.g. the OAuth consent page). */
+  returnTo?: string;
 }
 
 export async function storePendingAuth(
@@ -446,6 +469,10 @@ export interface ConnectRequest {
   country: string;
   bankName?: string;
   createdAt: number;
+  /** Let the user choose label / account type / country on the connect page. */
+  editable?: boolean;
+  scopeKey?: string;
+  returnTo?: string;
 }
 
 export async function storeConnectRequest(

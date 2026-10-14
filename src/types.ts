@@ -8,6 +8,12 @@ export interface Env {
   ENABLE_BANKING_API_BASE?: string;
   AUTH_SECRET: string;
   OAUTH_PROVIDER: OAuthHelpers;
+  /** Resend API key (secret). With OWNER_EMAIL, enables magic-link login. */
+  RESEND_API_KEY?: string;
+  /** The only address magic links are sent to (single owner for now). */
+  OWNER_EMAIL?: string;
+  /** Sender for magic-link emails. Defaults to bank@updates.lab.nowadays.tech. */
+  MAGIC_LINK_FROM?: string;
 }
 
 export interface StoredCredentials {

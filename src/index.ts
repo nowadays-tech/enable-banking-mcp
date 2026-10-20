@@ -1,3 +1,4 @@
+import { backfillSessionHistory, deleteHistoryCache } from "./enable-banking/history";
 import { refreshSessionAccounts, refreshNotice } from "./enable-banking/refresh";
 import { listMcpClients, OWNER_USER_ID } from "./mcp-clients";
 import { OAuthProvider, AuthorizationError, CimdFetchError } from "@cloudflare/workers-oauth-provider";
@@ -538,6 +539,20 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
     });
     await deleteConnectRequest(this.env.BANKING_KV, token);
     return Response.redirect(auth.url, 302);
+  }
+
+  private scheduleHistoryBackfill(accountIds: string[]): void {
+    if (accountIds.length === 0) return;
+    const run = async () => {
+      const client = await EnableBankingClient.create(this.env);
+      await backfillSessionHistory(this.env.BANKING_KV, client, accountIds);
+    };
+    const task = run().catch((error) => console.error("History backfill failed:", error));
+    try {
+      this.ctx.waitUntil(task);
+    } catch {
+      // No execution context (tests); the promise still runs.
+    }
   }
 
   private async handleSetupRoutes(request: Request): Promise<Response> {
@@ -1174,6 +1189,9 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
         };
 
         await storeSession(this.env.BANKING_KV, session, pendingAuth.connectionId);
+        // Many banks only serve >90 days of history shortly after the MitID approval:
+        // capture full history now, in the background, and serve older dates from KV.
+        this.scheduleHistoryBackfill(session.accounts.map((a) => a.accountId));
         
         const connectionInfo: ConnectionInfo = {
           id: pendingAuth.connectionId,
@@ -1225,6 +1243,9 @@ export class DefaultHandler extends WorkerEntrypoint<Env> {
           await client.deleteSession(session.sessionId);
         } catch (error) {
           console.error("Failed to delete session at Enable Banking:", error);
+        }
+        for (const account of session.accounts) {
+          await deleteHistoryCache(this.env.BANKING_KV, account.accountId);
         }
         await deleteStoredSession(this.env.BANKING_KV, connectionId);
         if (connectionId !== "default") {

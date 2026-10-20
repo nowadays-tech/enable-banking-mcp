@@ -32,6 +32,26 @@ export interface AccountDetailsResponse {
   cash_account_type?: string;
 }
 
+/** Default consent length when the bank's maximum is unknown. */
+export const DEFAULT_CONSENT_DAYS = 90;
+
+/** maximum_consent_validity (seconds) to whole days; undefined if missing/invalid. */
+export function maxConsentDaysFromSeconds(seconds?: number): number | undefined {
+  if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return undefined;
+  return Math.floor(seconds / 86400);
+}
+
+/**
+ * valid_until for POST /auth: the bank's maximum (minus a 10-minute margin so
+ * clock skew can't exceed it), or DEFAULT_CONSENT_DAYS when unknown.
+ */
+export function consentValidUntil(maxConsentValidityDays?: number, now = Date.now()): string {
+  if (maxConsentValidityDays && maxConsentValidityDays > 0) {
+    return new Date(now + maxConsentValidityDays * 86400000 - 10 * 60000).toISOString();
+  }
+  return new Date(now + DEFAULT_CONSENT_DAYS * 86400000).toISOString();
+}
+
 export class EnableBankingClient {
   private env: Env;
   private baseUrl: string;
@@ -115,6 +135,9 @@ export class EnableBankingClient {
     state?: string,
     maxConsentValidityDays?: number
   ): Promise<AuthorizationResponse> {
+    if (maxConsentValidityDays === undefined) {
+      maxConsentValidityDays = await this.lookupMaxConsentDays(aspspName, aspspCountry);
+    }
     const body = {
       aspsp: { name: aspspName, country: aspspCountry },
       redirect_url: redirectUrl,
@@ -160,12 +183,15 @@ export class EnableBankingClient {
     accountId: string,
     dateFrom?: string,
     dateTo?: string,
-    continuationKey?: string
+    continuationKey?: string,
+    strategy?: "default" | "longest"
   ): Promise<TransactionsResponse> {
     const params = new URLSearchParams();
     if (dateFrom) params.set("date_from", dateFrom);
     if (dateTo) params.set("date_to", dateTo);
     if (continuationKey) params.set("continuation_key", continuationKey);
+    // "longest" starts from the earliest available transaction and ignores date_to.
+    if (strategy && strategy !== "default") params.set("strategy", strategy);
 
     const queryString = params.toString();
     const path = `/accounts/${accountId}/transactions${
@@ -178,14 +204,23 @@ export class EnableBankingClient {
     return normalizeTransactionsResponse(raw);
   }
 
+  /**
+   * The bank's maximum consent validity in days (GET /aspsps reports seconds).
+   * Undefined when the bank or the field isn't found.
+   */
+  async lookupMaxConsentDays(aspspName: string, aspspCountry: string): Promise<number | undefined> {
+    try {
+      const banks = await this.getASPSPs(aspspCountry);
+      const bank = banks.find((b) => b.name === aspspName) || banks.find((b) => b.name.toLowerCase() === aspspName.toLowerCase());
+      return maxConsentDaysFromSeconds(bank?.maximum_consent_validity);
+    } catch (error) {
+      console.warn("Could not read maximum_consent_validity:", error);
+      return undefined;
+    }
+  }
+
   private getConsentValidUntil(maxConsentValidityDays?: number): string {
-    const defaultDays = 90;
-    const days = maxConsentValidityDays && maxConsentValidityDays > 0 
-      ? Math.min(maxConsentValidityDays, defaultDays) 
-      : defaultDays;
-    const date = new Date();
-    date.setDate(date.getDate() + days);
-    return date.toISOString();
+    return consentValidUntil(maxConsentValidityDays);
   }
 
   buildAuthRequestBody(

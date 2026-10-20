@@ -132,6 +132,7 @@ export interface Transaction {
   entry_reference?: string;
   booking_date?: string;
   value_date?: string;
+  transaction_date?: string;
   transaction_amount: {
     amount: string;
     currency: string;

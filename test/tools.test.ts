@@ -463,12 +463,12 @@ cBPC3yZ0OB/L3d4dQ6xKDBJn
     const access = body.access as { valid_until: string };
     const validUntil = new Date(access.valid_until);
     const now = new Date("2024-06-15T12:00:00.000Z");
-    const daysDiff = Math.floor((validUntil.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const daysDiff = Math.round((validUntil.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
     expect(daysDiff).toBe(30);
   });
 
-  it("should cap maximum_consent_validity at 90 days", () => {
+  it("uses the bank's maximum_consent_validity beyond 90 days (no 90-day cap)", () => {
     const client = new EnableBankingClient(mockEnv, mockCredentials);
     const body = client.buildAuthRequestBody(
       "Test Bank",
@@ -482,9 +482,11 @@ cBPC3yZ0OB/L3d4dQ6xKDBJn
     const access = body.access as { valid_until: string };
     const validUntil = new Date(access.valid_until);
     const now = new Date("2024-06-15T12:00:00.000Z");
-    const daysDiff = Math.floor((validUntil.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const daysDiff = Math.round((validUntil.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
-    expect(daysDiff).toBe(90);
+    expect(daysDiff).toBe(180);
+    // Stays strictly below the bank's maximum (10-minute margin).
+    expect(validUntil.getTime()).toBeLessThan(now.getTime() + 180 * 86400000);
   });
 
   it("should include all required fields in auth request body", () => {

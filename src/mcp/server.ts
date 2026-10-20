@@ -1,4 +1,5 @@
-import { forEachTransactionPage, signedAmount } from "../enable-banking/transactions";
+import { signedAmount } from "../enable-banking/transactions";
+import { getTransactionsWithHistory, DEFAULT_MAX_TRANSACTIONS } from "../enable-banking/history";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { Env, BankSession, BankAccount, Transaction, ConnectionStatusInfo } from "../types";
@@ -408,25 +409,35 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
     "get_transactions",
     {
       description:
-        "Get transactions within a date range. Give account_id for one account (supports pagination), or omit it to get transactions for all accounts, optionally limited to one connection group.",
+        "Get transactions within a date range. Give account_id for one account, or omit it to get transactions for all accounts, optionally limited to one connection group. " +
+        "Defaults: the last 30 days, at most 500 transactions per account (newest first). Older dates can be requested, e.g. date_from '2025-01-01': " +
+        "long ranges are fetched month by month, and history older than ~80 days is served from a cache captured when the bank was connected or renewed. " +
+        "If the result says truncated, narrow the range or raise max_transactions.",
       inputSchema: {
         account_id: accountIdSchema,
         ...filterSchema,
         date_from: z
           .string()
           .optional()
-          .describe("Start date in YYYY-MM-DD format (defaults to 30 days ago)"),
+          .describe("Start date in YYYY-MM-DD format (defaults to 30 days ago). Older dates are supported."),
         date_to: z
           .string()
           .optional()
           .describe("End date in YYYY-MM-DD format (defaults to today)"),
+        max_transactions: z
+          .number()
+          .int()
+          .positive()
+          .max(5000)
+          .optional()
+          .describe(`Maximum booked transactions per account (default ${DEFAULT_MAX_TRANSACTIONS}, newest first)`),
         continuation_key: z
           .string()
           .optional()
-          .describe("Pagination key from previous response (requires account_id)"),
+          .describe("Raw bank pagination key from a previous response (requires account_id; fetches that single page only). Rarely needed: ranges are paged automatically."),
       },
     },
-    async ({ account_id, group, date_from, date_to, continuation_key }) => {
+    async ({ account_id, group, date_from, date_to, max_transactions, continuation_key }) => {
       if (continuation_key && !account_id) {
         return textContent("continuation_key requires account_id.");
       }
@@ -450,18 +461,36 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
         status,
       });
 
+      const maxTx = max_transactions || DEFAULT_MAX_TRANSACTIONS;
       const results = [];
       for (const t of targets) {
-        const txResult = await client.getTransactions(t.account.accountId, fromDate, toDate, continuation_key);
+        if (continuation_key) {
+          // Legacy single-page mode.
+          const txResult = await client.getTransactions(t.account.accountId, fromDate, toDate, continuation_key);
+          results.push({
+            group: t.label,
+            accountId: t.account.accountId,
+            account: accountName(t),
+            transactions: [
+              ...(txResult.transactions?.booked ?? []).map((tx) => formatTx(tx, "booked")),
+              ...(txResult.transactions?.pending ?? []).map((tx) => formatTx(tx, "pending")),
+            ],
+            ...(txResult.continuation_key ? { continuation_key: txResult.continuation_key } : {}),
+          });
+          continue;
+        }
+        const r = await getTransactionsWithHistory(env.BANKING_KV, client, t.account.accountId, fromDate, toDate, maxTx);
         results.push({
           group: t.label,
           accountId: t.account.accountId,
           account: accountName(t),
           transactions: [
-            ...(txResult.transactions?.booked ?? []).map((tx) => formatTx(tx, "booked")),
-            ...(txResult.transactions?.pending ?? []).map((tx) => formatTx(tx, "pending")),
+            ...r.booked.map((tx) => formatTx(tx, "booked")),
+            ...r.pending.map((tx) => formatTx(tx, "pending")),
           ],
-          ...(txResult.continuation_key ? { continuation_key: txResult.continuation_key } : {}),
+          ...(r.truncated ? { truncated: true, note: `Limited to the newest ${maxTx} booked transactions; narrow the range or raise max_transactions.` } : {}),
+          ...(r.failedWindows.length ? { unavailable: r.failedWindows } : {}),
+          ...(r.cachedMonths.length ? { fromCache: r.cachedMonths } : {}),
         });
       }
 
@@ -470,8 +499,10 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
             group: results[0].group,
             account: results[0].account,
             dateRange: { from: fromDate, to: toDate },
-            transactions: results[0].transactions,
-            ...(results[0].continuation_key ? { continuation_key: results[0].continuation_key } : {}),
+            ...(() => {
+              const { group: _g, accountId: _a, account: _n, ...rest } = results[0];
+              return rest;
+            })(),
           }
         : withSkipped({ dateRange: { from: fromDate, to: toDate }, accounts: results }, skippedExpired);
       return await ok(JSON.stringify(body, null, 2), scope);
@@ -482,7 +513,8 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
     "search_transactions",
     {
       description:
-        "Search transactions by text in counterparty name or description (case-insensitive). Give account_id to search one account, or omit it to search all accounts, optionally limited to one connection group.",
+        "Search transactions by text in counterparty name or description (case-insensitive). Give account_id to search one account, or omit it to search all accounts, optionally limited to one connection group. " +
+        "Defaults to the last 90 days; older dates can be requested with date_from (history older than ~80 days comes from the cache captured at connect/renew).",
       inputSchema: {
         account_id: accountIdSchema,
         ...filterSchema,
@@ -490,7 +522,7 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
         date_from: z
           .string()
           .optional()
-          .describe("Start date in YYYY-MM-DD format (defaults to 90 days ago)"),
+          .describe("Start date in YYYY-MM-DD format (defaults to 90 days ago). Older dates are supported."),
         date_to: z
           .string()
           .optional()
@@ -518,8 +550,9 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
 
       for (const t of targets) {
         if (matches.length >= maxResults) break;
-        await forEachTransactionPage(client, t.account.accountId, fromDate, toDate, (txResult) => {
-          for (const tx of txResult.transactions?.booked ?? []) {
+        const r = await getTransactionsWithHistory(env.BANKING_KV, client, t.account.accountId, fromDate, toDate, 5000);
+        {
+          for (const tx of r.booked) {
             const counterparty = tx.creditor_name || tx.debtor_name || "";
             const description = (tx.remittance_information || []).join(" ");
             if (
@@ -537,8 +570,7 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
               if (matches.length >= maxResults) break;
             }
           }
-          return matches.length < maxResults;
-        });
+        }
       }
 
       const body = withSkipped(
@@ -567,7 +599,7 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
           .string()
           .optional()
           .describe(
-            "Month in YYYY-MM format (defaults to current month). Use 'last3' for last 3 months."
+            "Month in YYYY-MM format (defaults to current month; earlier months are supported). Use 'last3' for last 3 months."
           ),
       },
     },
@@ -595,9 +627,8 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
 
       const allTransactions: Transaction[] = [];
       for (const t of targets) {
-        await forEachTransactionPage(client, t.account.accountId, fromDate, toDate, (txResult) => {
-          allTransactions.push(...(txResult.transactions?.booked ?? []));
-        });
+        const r = await getTransactionsWithHistory(env.BANKING_KV, client, t.account.accountId, fromDate, toDate, 5000);
+        allTransactions.push(...r.booked);
       }
 
       const spending: Record<string, number> = {};

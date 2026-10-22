@@ -6,13 +6,16 @@ export interface Env {
   ENABLE_BANKING_APP_ID?: string;
   ENABLE_BANKING_PRIVATE_KEY?: string;
   ENABLE_BANKING_API_BASE?: string;
+  /** Password for the setup pages and the OAuth consent screen. */
   AUTH_SECRET: string;
+  /** Encrypts the Enable Banking private key in KV. Falls back to AUTH_SECRET when unset. */
+  ENCRYPTION_SECRET?: string;
   OAUTH_PROVIDER: OAuthHelpers;
-  /** Resend API key (secret). With OWNER_EMAIL, enables magic-link login. */
+  /** Resend API key (secret). With OWNER_EMAIL and MAGIC_LINK_FROM, enables magic-link login. */
   RESEND_API_KEY?: string;
   /** The only address magic links are sent to (single owner for now). */
   OWNER_EMAIL?: string;
-  /** Sender for magic-link emails. Defaults to bank@updates.lab.nowadays.tech. */
+  /** Sender for magic-link emails, e.g. "Bank MCP <bank@your-domain>", on a domain verified in Resend. */
   MAGIC_LINK_FROM?: string;
 }
 
@@ -21,6 +24,8 @@ export interface StoredCredentials {
   encryptedPrivateKey: string;
   iv: string;
   salt: string;
+  /** Secret the key is encrypted with; absent on records from before ENCRYPTION_SECRET (AUTH_SECRET). */
+  encryptedWith?: "AUTH_SECRET" | "ENCRYPTION_SECRET";
   createdAt: string;
   updatedAt: string;
 }
@@ -34,9 +39,13 @@ export interface BankSession {
   accounts: BankAccount[];
   createdAt: string;
   updatedAt: string;
-  psuType?: "personal" | "business";
-  label?: string;
-  connectionId?: string;
+}
+
+/** A stored session joined with its connection index entry, the one source of label and PSU type. */
+export interface ConnectedSession extends BankSession {
+  connectionId: string;
+  label: string;
+  psuType: "personal" | "business";
 }
 
 export interface ConnectionInfo {

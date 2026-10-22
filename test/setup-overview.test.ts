@@ -17,7 +17,7 @@ describe("setup overview", () => {
         { grantId: "g1", clientId: "c1", clientName: "Grok", connectedAt: Date.now(), scope: "all" },
         { grantId: "g2", clientId: "c2", clientName: "Grok (business)", connectedAt: Date.now(), scope: ["conn_hold", "gone"] },
       ],
-    }, ["DK"]);
+    });
     const banksAt = html.indexOf("Bank connections");
     const clientsAt = html.indexOf("MCP clients");
     expect(banksAt).toBeGreaterThan(-1);
@@ -35,12 +35,12 @@ describe("setup overview", () => {
   });
 
   it("shows an empty state and a warning when clients can't be loaded", () => {
-    expect(renderWizardPage("https://x.dev", { ...base, clients: [] }, ["DK"])).toContain("No apps connected yet");
-    expect(renderWizardPage("https://x.dev", { ...base, clientsUnavailable: true }, ["DK"])).toContain("Couldn&#039;t load clients");
+    expect(renderWizardPage("https://x.dev", { ...base, clients: [] })).toContain("No apps connected yet");
+    expect(renderWizardPage("https://x.dev", { ...base, clientsUnavailable: true })).toContain("Couldn&#039;t load clients");
   });
 
   it("keeps the step wizard while setup is incomplete", () => {
-    const html = renderWizardPage("https://x.dev", { ...base, hasBankSession: false, connections: [], clients: [] }, ["DK"]);
+    const html = renderWizardPage("https://x.dev", { ...base, hasBankSession: false, connections: [], clients: [] });
     expect(html).not.toContain("MCP clients");
   });
 });

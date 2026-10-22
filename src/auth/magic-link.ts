@@ -2,7 +2,6 @@ import type { Env } from "../types";
 
 export const MAGIC_LINK_TTL_SECONDS = 900; // 15 minutes
 const RATE_LIMIT_SECONDS = 60;
-export const DEFAULT_MAGIC_LINK_FROM = "Enable Banking MCP <bank@updates.lab.nowadays.tech>";
 
 export interface MagicLinkData {
   email: string;
@@ -10,14 +9,14 @@ export interface MagicLinkData {
   createdAt: number;
 }
 
-/** Magic-link login is offered only when both the Resend key and the owner email are configured. */
-export function magicLinkEnabled(env: Pick<Env, "RESEND_API_KEY" | "OWNER_EMAIL">): boolean {
-  return Boolean(env.RESEND_API_KEY && env.OWNER_EMAIL);
+/** Magic-link login is offered only when the Resend key, the owner email and the sender are all configured. */
+export function magicLinkEnabled(env: Pick<Env, "RESEND_API_KEY" | "OWNER_EMAIL" | "MAGIC_LINK_FROM">): boolean {
+  return Boolean(env.RESEND_API_KEY && env.OWNER_EMAIL && env.MAGIC_LINK_FROM);
 }
 
 /** Only same-origin relative paths are allowed as post-login destinations. */
 export function safeReturnPath(returnTo: string | null | undefined, fallback = "/setup"): string {
-  if (!returnTo || !returnTo.startsWith("/") || returnTo.startsWith("//") || returnTo.startsWith("/\\")) {
+  if (!returnTo?.startsWith("/") || returnTo.startsWith("//") || returnTo.startsWith("/\\")) {
     return fallback;
   }
   return returnTo;
@@ -72,7 +71,7 @@ export async function sendMagicLink(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: env.MAGIC_LINK_FROM || DEFAULT_MAGIC_LINK_FROM,
+      from: env.MAGIC_LINK_FROM,
       to: [email],
       subject: "Your Enable Banking MCP login link",
       text: `Log in to your Enable Banking MCP server:\n\n${link}\n\nThe link works once and expires in 15 minutes. If you didn't request it, ignore this email.`,

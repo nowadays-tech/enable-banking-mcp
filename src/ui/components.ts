@@ -98,7 +98,7 @@ export function card(opts: {
     ? `<div class="ui-card-content"${header ? "" : ' style="padding-top: 1.5rem;"'}>${opts.content}</div>`
     : "";
   const footer = opts.footer ? `<div class="ui-card-footer">${opts.footer}</div>` : "";
-  return `<div class="ui-card${opts.className ? " " + opts.className : ""}"${opts.id ? ` id="${opts.id}"` : ""}>${header}${content}${footer}</div>`;
+  return `<div class="ui-card${opts.className ? ` ${opts.className}` : ""}"${opts.id ? ` id="${opts.id}"` : ""}>${header}${content}${footer}</div>`;
 }
 
 /** Full HTML document with the shared stylesheet. */

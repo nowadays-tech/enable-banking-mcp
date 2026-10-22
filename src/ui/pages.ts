@@ -1,6 +1,6 @@
 import { renderSetupOverview } from "./setup-overview";
 import type { McpClientView } from "../mcp-clients";
-import type { BankSession, ASPSP } from "../types";
+import type { ConnectedSession, ASPSP } from "../types";
 import { baseStyles } from "./styles";
 import { escapeHtml, alert, flash, badge, consentBadge, card, page, pageHeader, field, icons } from "./components";
 
@@ -63,11 +63,8 @@ export interface WizardState {
   credentialsFromEnv: boolean;
   appId?: string;
   hasBankSession: boolean;
-  bankName?: string;
-  accountCount?: number;
-  consentExpiry?: string;
   connections?: WizardConnection[];
-  /** Authorized MCP clients; when set (and setup is complete) the overview page is shown. */
+  /** Authorized MCP clients, shown on the overview page once setup is complete. */
   clients?: McpClientView[];
   /** Set by the caller when the OAuth grant listing failed. */
   clientsUnavailable?: boolean;
@@ -77,11 +74,10 @@ export interface WizardState {
 export function renderWizardPage(
   baseUrl: string,
   state: WizardState,
-  countries: string[],
   error?: string,
   success?: string
 ): string {
-  if (state.hasCredentials && state.hasBankSession && (state.clients || state.clientsUnavailable)) {
+  if (state.hasCredentials && state.hasBankSession) {
     return renderSetupOverview(
       baseUrl,
       {
@@ -94,8 +90,6 @@ export function renderWizardPage(
       success
     );
   }
-  const currentStep = !state.hasCredentials ? 1 : !state.hasBankSession ? 2 : 3;
-  
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -277,290 +271,21 @@ export function renderWizardPage(
     </div>
 
     <!-- Step C: Connect Bank -->
-    <div class="step-content ${state.hasBankSession ? 'completed' : state.hasCredentials ? 'active' : ''}">
+    <div class="step-content ${state.hasCredentials ? 'active' : ''}">
       <div class="step-header">
         <div class="step-title">
-          <span class="step-number">${state.hasBankSession ? '✓' : '3'}</span>
-          <h3>Bank Connections</h3>
+          <span class="step-number">3</span>
+          <h3>Connect a Bank</h3>
         </div>
-        ${state.hasBankSession ? `<span class="badge badge-success">${state.connections?.length || 1} Connected</span>` : state.hasCredentials ? '<span class="badge badge-outline">Step 3</span>' : '<span class="badge badge-muted">Pending</span>'}
+        ${state.hasCredentials ? '<span class="badge badge-outline">Step 3</span>' : '<span class="badge badge-muted">Pending</span>'}
       </div>
-      
-      ${state.hasBankSession && state.connections && state.connections.length > 0 ? `
-        <div class="stack-sm">
-        ${state.connections.map((conn) => {
-          const expiryDate = new Date(conn.validUntil);
-          const isExpired = expiryDate.getTime() <= Date.now();
-          return `
-        <div class="connection-card">
-          <div class="connection-header">
-            <div>
-              <h4 class="connection-title">${escapeHtml(conn.label)}</h4>
-              <div class="connection-subtitle">${escapeHtml(conn.aspspName)} · ${conn.psuType === 'business' ? 'Business' : 'Personal'} · ${conn.accountCount} account${conn.accountCount !== 1 ? 's' : ''}</div>
-            </div>
-            <div class="connection-actions">${consentBadge(conn.validUntil)}</div>
-          </div>
-          <div class="connection-meta">${isExpired ? 'Consent expired' : `Consent valid until ${escapeHtml(expiryDate.toLocaleDateString('en-GB'))}`}</div>
-          <form action="/connections/rename" method="POST" class="rename-form">
-            <input type="hidden" name="connection_id" value="${escapeHtml(conn.id)}" />
-            <input type="text" name="label" value="${escapeHtml(conn.label)}" maxlength="80" required aria-label="Connection name" />
-            <button type="submit" class="btn-outline btn-sm">Rename</button>
-          </form>
-          <div class="btn-row">
-            <form action="/auth/start" method="POST">
-              <input type="hidden" name="connection_id" value="${escapeHtml(conn.id)}" />
-              <input type="hidden" name="label" value="${escapeHtml(conn.label)}" />
-              <input type="hidden" name="psu_type" value="${escapeHtml(conn.psuType)}" />
-              <input type="hidden" name="aspsp_id" value="${escapeHtml(conn.aspspName)}" />
-              <input type="hidden" name="aspsp_name" value="${escapeHtml(conn.aspspName)}" />
-              <input type="hidden" name="country" value="${escapeHtml(conn.aspspCountry)}" />
-              <button type="submit" class="btn-secondary btn-sm">${isExpired ? 'Reconnect' : 'Renew consent'}</button>
-            </form>
-            <form action="/disconnect" method="POST">
-              <input type="hidden" name="connection_id" value="${escapeHtml(conn.id)}" />
-              <button type="submit" class="btn-ghost btn-sm" style="color: var(--destructive);" onclick="return confirm('Disconnect ${escapeHtml(conn.label)}?')">Disconnect</button>
-            </form>
-          </div>
-        </div>`;
-        }).join('')}
-        </div>
-        
-        <button type="button" class="add-connection-btn mt-2" onclick="document.getElementById('addConnectionForm').classList.toggle('hidden')">
-          ${icons.plus} Add another bank
-        </button>
-      ` : ''}
-      
       ${state.hasCredentials ? `
-        <div id="addConnectionForm" class="${state.hasBankSession && state.connections && state.connections.length > 0 ? 'hidden' : ''}" style="margin-top: ${state.hasBankSession ? '1rem' : '0'};">
-          ${!state.hasBankSession ? '<p>Select your country and bank to connect your account.</p>' : ''}
-          
-          <form id="bankForm" action="/auth/start" method="POST">
-            <div class="field-group">
-              <label for="label">Connection Label</label>
-              <input type="text" id="label" name="label" placeholder="e.g., Personal, Business, Joint Account" />
-              <p class="ui-field-description">Give this connection a name to identify it easily</p>
-            </div>
-            
-            <div class="field-group">
-              <label>Account Type</label>
-              <div class="psu-type-selector">
-                <div class="psu-type-btn selected" data-value="personal" onclick="selectPsuType('personal')">
-                  <div class="psu-type-label">Personal</div>
-                  <div class="psu-type-desc">Individual accounts</div>
-                </div>
-                <div class="psu-type-btn" data-value="business" onclick="selectPsuType('business')">
-                  <div class="psu-type-label">Business</div>
-                  <div class="psu-type-desc">Company accounts</div>
-                </div>
-              </div>
-              <input type="hidden" id="psuType" name="psu_type" value="personal" />
-            </div>
-            
-            <div class="field-group">
-              <label for="country">Country</label>
-              <select id="country" name="country" required>
-                <option value="">Select a country...</option>
-                ${countries.map((c) => `<option value="${c}">${escapeHtml(getCountryDisplayName(c))}</option>`).join("")}
-              </select>
-            </div>
-
-            <div id="bankSection" class="hidden section-group">
-              <label for="bankSearch">Bank</label>
-              <input type="text" id="bankSearch" placeholder="Search banks..." />
-              <div id="psuTypeFilter" class="alert alert-info hidden mt-2" style="margin-bottom: 0;"></div>
-              <div class="banks-container">
-                <div id="banksList" class="banks-list"></div>
-              </div>
-              <input type="hidden" id="aspspId" name="aspsp_id" required />
-              <input type="hidden" id="aspspName" name="aspsp_name" />
-            </div>
-
-            <div id="submitSection" class="submit-section hidden">
-              <button type="submit" id="connectBankBtn" class="btn-full" disabled>Connect Bank</button>
-            </div>
-          </form>
-        </div>
-        
-        <script>
-          let allBanks = [];
-          let filteredBanks = [];
-          let selectedBankId = null;
-          let selectedPsuType = 'personal';
-          
-          const countrySelect = document.getElementById('country');
-          const bankSection = document.getElementById('bankSection');
-          const banksList = document.getElementById('banksList');
-          const bankSearch = document.getElementById('bankSearch');
-          const aspspIdInput = document.getElementById('aspspId');
-          const aspspNameInput = document.getElementById('aspspName');
-          const submitSection = document.getElementById('submitSection');
-          const connectBankBtn = document.getElementById('connectBankBtn');
-          const psuTypeInput = document.getElementById('psuType');
-          const psuTypeFilter = document.getElementById('psuTypeFilter');
-
-          function selectPsuType(type) {
-            selectedPsuType = type;
-            psuTypeInput.value = type;
-            document.querySelectorAll('.psu-type-btn').forEach(btn => {
-              btn.classList.toggle('selected', btn.dataset.value === type);
-            });
-            filterAndRenderBanks();
-          }
-
-          function updateConnectButton() {
-            connectBankBtn.disabled = !selectedBankId;
-          }
-          
-          function filterBanksByPsuType(banks) {
-            return banks.filter(b => {
-              if (!b.psu_types_supported || b.psu_types_supported.length === 0) {
-                return true;
-              }
-              return b.psu_types_supported.includes(selectedPsuType);
-            });
-          }
-          
-          function filterAndRenderBanks() {
-            const query = bankSearch.value.toLowerCase();
-            let banks = allBanks.filter(b => b.name.toLowerCase().includes(query));
-            const beforeFilter = banks.length;
-            banks = filterBanksByPsuType(banks);
-            const afterFilter = banks.length;
-            
-            if (beforeFilter > afterFilter && afterFilter > 0) {
-              psuTypeFilter.textContent = 'Showing ' + afterFilter + ' of ' + beforeFilter + ' banks that support ' + (selectedPsuType === 'business' ? 'business' : 'personal') + ' accounts';
-              psuTypeFilter.classList.remove('hidden');
-            } else if (afterFilter === 0 && beforeFilter > 0) {
-              psuTypeFilter.textContent = 'No banks support ' + (selectedPsuType === 'business' ? 'business' : 'personal') + ' accounts. Try switching account type.';
-              psuTypeFilter.classList.remove('hidden');
-            } else {
-              psuTypeFilter.classList.add('hidden');
-            }
-            
-            filteredBanks = banks;
-            renderBanks(banks);
-          }
-
-          countrySelect.addEventListener('change', async () => {
-            const country = countrySelect.value;
-            selectedBankId = null;
-            aspspIdInput.value = '';
-            aspspNameInput.value = '';
-            updateConnectButton();
-            
-            if (!country) {
-              bankSection.classList.add('hidden');
-              submitSection.classList.add('hidden');
-              return;
-            }
-
-            banksList.innerHTML = '<div class="loading">Loading banks...</div>';
-            bankSection.classList.remove('hidden');
-            submitSection.classList.remove('hidden');
-
-            try {
-              const res = await fetch('/api/banks?country=' + encodeURIComponent(country));
-              const data = await res.json();
-              if (!res.ok || data.error) {
-                banksList.innerHTML = '<div class="alert alert-error" style="margin: 0.5rem;">' + (data.error || 'Failed to load banks: ' + res.status) + '</div>';
-                return;
-              }
-              allBanks = data;
-              filterAndRenderBanks();
-            } catch (err) {
-              banksList.innerHTML = '<div class="alert alert-error" style="margin: 0.5rem;">Failed to load banks: ' + (err.message || 'Network error') + '</div>';
-            }
-          });
-
-          bankSearch.addEventListener('input', filterAndRenderBanks);
-
-          function renderBanks(banks) {
-            if (banks.length === 0) {
-              banksList.innerHTML = '<div class="loading">No banks found</div>';
-              return;
-            }
-            banksList.innerHTML = banks.map(b => {
-              const bankId = b.aspsp_id || b.name;
-              const isSelected = bankId === selectedBankId;
-              const psuTypes = b.psu_types_supported || [];
-              const supportsBoth = psuTypes.length === 0 || (psuTypes.includes('personal') && psuTypes.includes('business'));
-              const psuBadge = supportsBoth ? '' : (psuTypes.includes('business') ? '<span class="bank-sandbox-badge">Business only</span>' : (psuTypes.includes('personal') ? '<span class="bank-sandbox-badge">Personal only</span>' : ''));
-              return '<div class="bank-item' + (isSelected ? ' selected' : '') + '" data-id="' + bankId + '" data-name="' + b.name + '">' +
-                '<div class="bank-item-content">' +
-                  '<span class="bank-name">' + b.name + '</span>' +
-                  (b.sandbox ? '<span class="bank-sandbox-badge">Sandbox</span>' : '') +
-                  psuBadge +
-                '</div>' +
-                '<svg class="bank-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' +
-              '</div>';
-            }).join('');
-
-            document.querySelectorAll('.bank-item').forEach(item => {
-              item.addEventListener('click', () => {
-                document.querySelectorAll('.bank-item').forEach(i => i.classList.remove('selected'));
-                item.classList.add('selected');
-                selectedBankId = item.dataset.id;
-                aspspIdInput.value = item.dataset.id;
-                aspspNameInput.value = item.dataset.name;
-                updateConnectButton();
-              });
-            });
-          }
-        </script>
+        <p>Pick your bank and approve read access (e.g. with MitID). After that, this page shows your banks and the MCP server URL.</p>
+        <form action="/connections/new" method="POST">
+          <button type="submit" class="btn-full">${icons.plus} Connect a bank</button>
+        </form>
       ` : `
         <p>Complete steps 1 and 2 first to connect your bank.</p>
-      `}
-    </div>
-
-    <!-- Step D: Use with AI -->
-    <div class="step-content ${state.hasBankSession ? 'active' : ''}">
-      <div class="step-header">
-        <div class="step-title">
-          <span class="step-number">4</span>
-          <h3>Use with AI Assistants</h3>
-        </div>
-        ${state.hasBankSession ? '<span class="badge badge-success">Ready</span>' : '<span class="badge badge-muted">Pending</span>'}
-      </div>
-      
-      ${state.hasBankSession ? `
-        <p>Add this MCP server to your AI assistant:</p>
-        
-        <div class="card">
-          <h3>Claude.ai / ChatGPT (OAuth)</h3>
-          <p style="font-size: 0.875rem; margin-bottom: 0.5rem;">Add as a custom MCP server - OAuth will handle authentication:</p>
-          <div class="copy-wrapper">
-            <div class="code-block">
-              <code id="mcpUrl">${escapeHtml(baseUrl)}/mcp</code>
-            </div>
-            <button class="copy-btn" onclick="copyToClipboard('mcpUrl', this)">Copy</button>
-          </div>
-        </div>
-        
-        <div class="card">
-          <h3>Cursor / Claude Code (Bearer Token)</h3>
-          <p style="font-size: 0.875rem; margin-bottom: 0.5rem;">Add to your MCP settings with your AUTH_SECRET as the bearer token:</p>
-          <div class="copy-wrapper">
-            <div class="code-block pre">
-<code id="cursorConfig">{
-  "mcpServers": {
-    "banking": {
-      "url": "${escapeHtml(baseUrl)}/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_AUTH_SECRET"
-      }
-    }
-  }
-}</code>
-            </div>
-            <button class="copy-btn" onclick="copyToClipboard('cursorConfig', this)">Copy</button>
-          </div>
-        </div>
-        
-        <p class="text-muted">
-          <strong>Available tools:</strong> list_connections, connection_status, list_accounts, get_balances, get_transactions, search_transactions, summarize_spending, add_bank_connection
-        </p>
-      ` : `
-        <p class="text-muted">Connect your bank first to get your MCP server URLs.</p>
       `}
     </div>
   </div>
@@ -580,231 +305,7 @@ export function renderWizardPage(
 </html>`;
 }
 
-export function renderSetupPage(countries: string[]): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Enable Banking MCP - Setup</title>
-  <style>${baseStyles}</style>
-</head>
-<body>
-  <div class="container">
-    <div class="page-header">
-      <h1>Enable Banking MCP</h1>
-      <p class="subtitle">Connect your bank account to use with AI assistants</p>
-    </div>
-
-    <form id="setupForm" action="/auth/start" method="POST">
-      <div class="field-group">
-        <label for="country">Country</label>
-        <select id="country" name="country" required>
-          <option value="">Select a country...</option>
-          ${countries.map((c) => `<option value="${c}">${escapeHtml(getCountryDisplayName(c))}</option>`).join("")}
-        </select>
-      </div>
-
-      <div id="bankSection" class="hidden section-group">
-        <label for="bankSearch">Bank</label>
-        <input type="text" id="bankSearch" placeholder="Search banks..." />
-        <div class="banks-container">
-          <div id="banksList" class="banks-list"></div>
-        </div>
-        <input type="hidden" id="aspspId" name="aspsp_id" required />
-        <input type="hidden" id="aspspName" name="aspsp_name" />
-      </div>
-
-      <div id="submitSection" class="submit-section hidden">
-        <button type="submit" id="connectBtn" class="btn-full" disabled>Connect Bank</button>
-      </div>
-    </form>
-  </div>
-
-  <script>
-    let allBanks = [];
-    let selectedBankId = null;
-    const countrySelect = document.getElementById('country');
-    const bankSection = document.getElementById('bankSection');
-    const banksList = document.getElementById('banksList');
-    const bankSearch = document.getElementById('bankSearch');
-    const aspspIdInput = document.getElementById('aspspId');
-    const aspspNameInput = document.getElementById('aspspName');
-    const submitSection = document.getElementById('submitSection');
-    const connectBtn = document.getElementById('connectBtn');
-
-    function updateConnectButton() {
-      connectBtn.disabled = !selectedBankId;
-    }
-
-    countrySelect.addEventListener('change', async () => {
-      const country = countrySelect.value;
-      selectedBankId = null;
-      aspspIdInput.value = '';
-      aspspNameInput.value = '';
-      updateConnectButton();
-      
-      if (!country) {
-        bankSection.classList.add('hidden');
-        submitSection.classList.add('hidden');
-        return;
-      }
-
-      banksList.innerHTML = '<div class="loading">Loading banks...</div>';
-      bankSection.classList.remove('hidden');
-      submitSection.classList.remove('hidden');
-
-      try {
-        const res = await fetch('/api/banks?country=' + encodeURIComponent(country));
-        const data = await res.json();
-        if (!res.ok || data.error) {
-          banksList.innerHTML = '<div class="alert alert-error" style="margin: 0.5rem;">' + (data.error || 'Failed to load banks: ' + res.status) + '</div>';
-          return;
-        }
-        allBanks = data;
-        renderBanks(allBanks);
-      } catch (err) {
-        banksList.innerHTML = '<div class="alert alert-error" style="margin: 0.5rem;">Failed to load banks: ' + (err.message || 'Network error') + '</div>';
-      }
-    });
-
-    bankSearch.addEventListener('input', () => {
-      const query = bankSearch.value.toLowerCase();
-      const filtered = allBanks.filter(b => b.name.toLowerCase().includes(query));
-      renderBanks(filtered);
-    });
-
-    function renderBanks(banks) {
-      if (banks.length === 0) {
-        banksList.innerHTML = '<div class="loading">No banks found</div>';
-        return;
-      }
-      banksList.innerHTML = banks.map(b => {
-        const bankId = b.aspsp_id || b.name;
-        const isSelected = bankId === selectedBankId;
-        return '<div class="bank-item' + (isSelected ? ' selected' : '') + '" data-id="' + bankId + '" data-name="' + b.name + '">' +
-          '<div class="bank-item-content">' +
-            '<span class="bank-name">' + b.name + '</span>' +
-            (b.sandbox ? '<span class="bank-sandbox-badge">Sandbox</span>' : '') +
-          '</div>' +
-          '<svg class="bank-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' +
-        '</div>';
-      }).join('');
-
-      document.querySelectorAll('.bank-item').forEach(item => {
-        item.addEventListener('click', () => {
-          document.querySelectorAll('.bank-item').forEach(i => i.classList.remove('selected'));
-          item.classList.add('selected');
-          selectedBankId = item.dataset.id;
-          aspspIdInput.value = item.dataset.id;
-          aspspNameInput.value = item.dataset.name;
-          updateConnectButton();
-        });
-      });
-    }
-  </script>
-</body>
-</html>`;
-}
-
-export function renderConnectedPage(
-  session: BankSession,
-  baseUrl: string
-): string {
-  const expiryDate = new Date(session.consentValidUntil);
-  const now = new Date();
-  const daysUntilExpiry = Math.ceil(
-    (expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
-  );
-  const isExpired = daysUntilExpiry <= 0;
-  const isExpiringSoon = daysUntilExpiry > 0 && daysUntilExpiry <= 7;
-
-  const statusBadge = isExpired
-    ? '<span class="badge badge-error">Expired</span>'
-    : isExpiringSoon
-      ? '<span class="badge badge-warning">Expiring Soon</span>'
-      : '<span class="badge badge-success">Active</span>';
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Enable Banking MCP - Connected</title>
-  <style>${baseStyles}</style>
-</head>
-<body>
-  <div class="container">
-    <div class="page-header" style="display: flex; align-items: center; gap: 0.75rem;">
-      <h1>Bank Connected</h1>
-      ${statusBadge}
-    </div>
-    <p class="subtitle">Your bank account is connected and ready to use</p>
-
-    <div class="card">
-      <h3>${session.aspspName}</h3>
-      <div class="info-row">
-        <span class="info-label">Country</span>
-        <span class="info-value">${session.aspspCountry}</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">Connected Since</span>
-        <span class="info-value">${new Date(session.createdAt).toLocaleDateString()}</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">Consent Expires</span>
-        <span class="info-value">${expiryDate.toLocaleDateString()} ${isExpired ? "(Expired)" : `(${daysUntilExpiry} days)`}</span>
-      </div>
-    </div>
-
-    <h2>Connected Accounts</h2>
-    <div class="account-list">
-      ${session.accounts
-        .map(
-          (acc) => `
-        <div class="account-item">
-          <div class="account-name">${acc.name || "Account"}</div>
-          ${acc.iban ? `<div class="account-iban">${acc.iban}</div>` : ""}
-          <div style="color: var(--muted-foreground); font-size: 0.8125rem; margin-top: 0.25rem;">
-            ${acc.currency || ""} ${acc.accountType ? `· ${acc.accountType}` : ""}
-          </div>
-        </div>
-      `
-        )
-        .join("")}
-    </div>
-
-    <div class="divider"></div>
-
-    <h2>MCP Server URL</h2>
-    <p>Add this URL to your AI assistant (Claude, ChatGPT, Cursor, etc.):</p>
-    <div class="code-block">
-      <code>${baseUrl}/mcp</code>
-    </div>
-    <p style="font-size: 0.8125rem; color: var(--muted-foreground);">
-      Available tools: <strong>list_accounts</strong>, <strong>get_balances</strong>, 
-      <strong>get_transactions</strong>, <strong>search_transactions</strong>, 
-      <strong>summarize_spending</strong>
-    </p>
-
-    <div class="divider"></div>
-
-    <div class="btn-row">
-      <form action="/auth/start" method="GET" style="flex: 1;">
-        <button type="submit" class="btn-secondary btn-full">
-          ${isExpired ? "Reconnect Bank" : "Connect Another Bank"}
-        </button>
-      </form>
-      <form action="/disconnect" method="POST" style="flex: 1;">
-        <button type="submit" class="btn-destructive btn-full">Disconnect</button>
-      </form>
-    </div>
-  </div>
-</body>
-</html>`;
-}
-
-export function renderCallbackSuccessPage(session: BankSession, isRenewal?: boolean, returnTo?: string): string {
+export function renderCallbackSuccessPage(session: ConnectedSession, isRenewal?: boolean, returnTo?: string): string {
   const title = isRenewal ? "Consent renewed" : "Bank connected";
   const message = isRenewal
     ? `Your ${session.aspspName} connection has been renewed.`
@@ -822,7 +323,7 @@ export function renderCallbackSuccessPage(session: BankSession, isRenewal?: bool
       action: badge(`${session.accounts.length} account${session.accounts.length !== 1 ? "s" : ""}`, "success"),
       content: `
         <div class="info-row"><span class="info-label">Bank</span><span class="info-value">${escapeHtml(session.aspspName)}</span></div>
-        ${session.label ? `<div class="info-row"><span class="info-label">Label</span><span class="info-value">${escapeHtml(session.label)}</span></div>` : ""}
+        <div class="info-row"><span class="info-label">Label</span><span class="info-value">${escapeHtml(session.label)}</span></div>
         <div class="info-row"><span class="info-label">Consent valid until</span><span class="info-value">${escapeHtml(new Date(session.consentValidUntil).toLocaleDateString("en-GB"))}</span></div>
         ${returnTo ? `<p class="ui-field-description mt-4">The new connection can now be ticked on the authorization page.</p>` : ""}`,
       footer,
@@ -871,18 +372,6 @@ export function renderLoginPage(
       ${opts.magicLinkEnabled ? `
       <button type="submit" name="action" value="magic" formnovalidate class="btn-outline btn-full">${icons.mail} Email me a login link</button>` : ""}
     </form>`,
-  });
-}
-
-export function renderDisconnectedPage(): string {
-  return page({
-    title: "Disconnected",
-    narrow: true,
-    body: card({
-      title: "Bank disconnected",
-      description: "Your bank account has been disconnected.",
-      footer: `<a class="btn" href="/setup">Connect a bank</a>`,
-    }),
   });
 }
 
@@ -1208,7 +697,6 @@ export function renderMagicLinkPage(token: string, valid: boolean): string {
 }
 
 export function renderConnectPage(
-  baseUrl: string,
   label: string,
   psuType: "personal" | "business",
   country: string,

@@ -120,7 +120,7 @@ async function fetchWindowWithRetry(
 ): Promise<{ booked: Transaction[]; pending: Transaction[]; failed: string[] }> {
   try {
     return { ...(await fetchWindow(client, accountId, from, to)), failed: [] };
-  } catch (error) {
+  } catch {
     const days = Math.round((parseDate(to).getTime() - parseDate(from).getTime()) / DAY);
     if (days < 1) return { booked: [], pending: [], failed: [`${from}..${to}`] };
     const mid = addDays(from, Math.floor(days / 2));

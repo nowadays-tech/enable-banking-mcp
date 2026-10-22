@@ -11,7 +11,6 @@ import {
   getAllSessions,
   findConnectionByAccountId,
   generateConnectionId,
-  isConsentExpired,
 } from "../src/enable-banking/client";
 
 const createMockKV = () => {
@@ -61,15 +60,6 @@ describe("Multi-Connection Session Storage", () => {
   });
 
   describe("getStoredSession / storeSession", () => {
-    it("should store and retrieve session with default connectionId", async () => {
-      const session = createMockSession();
-      await storeSession(mockKV as unknown as KVNamespace, session);
-      
-      const retrieved = await getStoredSession(mockKV as unknown as KVNamespace);
-      expect(retrieved).not.toBeNull();
-      expect(retrieved?.sessionId).toBe("session-123");
-    });
-
     it("should store and retrieve session with custom connectionId", async () => {
       const session = createMockSession({ sessionId: "session-custom" });
       await storeSession(mockKV as unknown as KVNamespace, session, "my-connection");
@@ -77,9 +67,6 @@ describe("Multi-Connection Session Storage", () => {
       const retrieved = await getStoredSession(mockKV as unknown as KVNamespace, "my-connection");
       expect(retrieved).not.toBeNull();
       expect(retrieved?.sessionId).toBe("session-custom");
-      
-      const defaultSession = await getStoredSession(mockKV as unknown as KVNamespace);
-      expect(defaultSession).toBeNull();
     });
 
     it("should isolate sessions by connectionId", async () => {
@@ -277,41 +264,26 @@ describe("getAllSessions", () => {
     expect(sessions).toEqual([]);
   });
 
-  it("should return default session when only default exists", async () => {
-    const session = createMockSession();
-    await storeSession(mockKV as unknown as KVNamespace, session, "default");
-    
-    const sessions = await getAllSessions(mockKV as unknown as KVNamespace);
-    expect(sessions.length).toBe(1);
-    expect(sessions[0].connectionId).toBe("default");
+  it("ignores a stored session that has no index entry", async () => {
+    await storeSession(mockKV as unknown as KVNamespace, createMockSession(), "default");
+    expect(await getAllSessions(mockKV as unknown as KVNamespace)).toEqual([]);
   });
 
-  it("should return all sessions including indexed connections", async () => {
-    const defaultSession = createMockSession({ sessionId: "default-sess", aspspName: "Default Bank" });
-    await storeSession(mockKV as unknown as KVNamespace, defaultSession, "default");
-    
-    const conn1Session = createMockSession({ sessionId: "conn1-sess", aspspName: "Bank A" });
-    await storeSession(mockKV as unknown as KVNamespace, conn1Session, "conn-1");
-    
-    const conn1: ConnectionInfo = {
-      id: "conn-1",
-      label: "Personal",
-      psuType: "personal",
-      aspspName: "Bank A",
-      aspspCountry: "SE",
-      validUntil: "2024-12-31",
-      createdAt: "2024-01-01",
-    };
-    await addConnectionToIndex(mockKV as unknown as KVNamespace, conn1);
-    
+  it("returns indexed sessions with label and PSU type from the index", async () => {
+    const stale = { ...createMockSession({ aspspName: "Bank A" }), label: "Old name", psuType: "business" };
+    await storeSession(mockKV as unknown as KVNamespace, stale, "conn-1");
+    await storeSession(mockKV as unknown as KVNamespace, createMockSession({ aspspName: "Bank B" }), "conn-2");
+    for (const [id, label] of [["conn-1", "Personal"], ["conn-2", "Gone"]]) {
+      await addConnectionToIndex(mockKV as unknown as KVNamespace, {
+        id, label, psuType: "personal", aspspName: "Bank", aspspCountry: "SE", validUntil: "2024-12-31", createdAt: "2024-01-01",
+      });
+    }
+    await deleteStoredSession(mockKV as unknown as KVNamespace, "conn-2");
+
     const sessions = await getAllSessions(mockKV as unknown as KVNamespace);
-    expect(sessions.length).toBe(2);
-    
-    const defaultResult = sessions.find(s => s.connectionId === "default");
-    const conn1Result = sessions.find(s => s.connectionId === "conn-1");
-    
-    expect(defaultResult?.aspspName).toBe("Default Bank");
-    expect(conn1Result?.aspspName).toBe("Bank A");
+    expect(sessions.map((s) => [s.connectionId, s.label, s.psuType, s.aspspName])).toEqual([
+      ["conn-1", "Personal", "personal", "Bank A"],
+    ]);
   });
 });
 
@@ -325,17 +297,6 @@ describe("findConnectionByAccountId", () => {
   it("should return null when no sessions exist", async () => {
     const result = await findConnectionByAccountId(mockKV as unknown as KVNamespace, "acc-1");
     expect(result).toBeNull();
-  });
-
-  it("should find account in default session", async () => {
-    const session = createMockSession({
-      accounts: [{ accountId: "acc-default", iban: "SE123", name: "Default Account", currency: "SEK" }],
-    });
-    await storeSession(mockKV as unknown as KVNamespace, session, "default");
-    
-    const result = await findConnectionByAccountId(mockKV as unknown as KVNamespace, "acc-default");
-    expect(result).not.toBeNull();
-    expect(result?.connectionId).toBe("default");
   });
 
   it("should find account in specific connection", async () => {
@@ -362,7 +323,7 @@ describe("findConnectionByAccountId", () => {
 
   it("should return null for non-existent account", async () => {
     const session = createMockSession();
-    await storeSession(mockKV as unknown as KVNamespace, session, "default");
+    await storeSession(mockKV as unknown as KVNamespace, session, "conn-1");
     
     const result = await findConnectionByAccountId(mockKV as unknown as KVNamespace, "non-existent");
     expect(result).toBeNull();
@@ -381,44 +342,5 @@ describe("generateConnectionId", () => {
   it("should generate connection IDs with correct prefix", () => {
     const id = generateConnectionId();
     expect(id.startsWith("conn_")).toBe(true);
-  });
-});
-
-describe("Backward Compatibility", () => {
-  let mockKV: ReturnType<typeof createMockKV>;
-
-  beforeEach(() => {
-    mockKV = createMockKV();
-  });
-
-  it("should handle legacy session:default format", async () => {
-    const legacySession = createMockSession();
-    mockKV._store["session:default"] = JSON.stringify(legacySession);
-    
-    const retrieved = await getStoredSession(mockKV as unknown as KVNamespace);
-    expect(retrieved).not.toBeNull();
-    expect(retrieved?.sessionId).toBe("session-123");
-    
-    const allSessions = await getAllSessions(mockKV as unknown as KVNamespace);
-    expect(allSessions.length).toBe(1);
-    expect(allSessions[0].connectionId).toBe("default");
-  });
-
-  it("should work with getAllSessions when no connection index exists", async () => {
-    const session = createMockSession();
-    await storeSession(mockKV as unknown as KVNamespace, session, "default");
-    
-    const sessions = await getAllSessions(mockKV as unknown as KVNamespace);
-    expect(sessions.length).toBe(1);
-    expect(sessions[0].connectionId).toBe("default");
-  });
-
-  it("should include default session label when not in index", async () => {
-    const session = createMockSession({ aspspName: "Test Bank" });
-    await storeSession(mockKV as unknown as KVNamespace, session, "default");
-    
-    const sessions = await getAllSessions(mockKV as unknown as KVNamespace);
-    expect(sessions[0].connectionId).toBe("default");
-    expect(sessions[0].aspspName).toBe("Test Bank");
   });
 });

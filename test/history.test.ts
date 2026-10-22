@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 const handlers: Record<string, (args: any, extra?: any) => Promise<any>> = {};
 vi.mock("@modelcontextprotocol/server", () => ({
@@ -216,7 +216,10 @@ describe("get_transactions tool", () => {
   });
 
   it("caps results with max_transactions and says so", async () => {
-    const kv = mockKV({ "session:default": session("default", ["p1"]) });
+    const kv = mockKV({
+      "session:default": session("default", ["p1"]),
+      connection_index: JSON.stringify({ connections: [{ id: "default", label: "Privat", psuType: "personal", aspspName: "Bank", aspspCountry: "DK", validUntil: future, createdAt: future }], updatedAt: future }),
+    });
     const today = new Date().toISOString().slice(0, 10);
     const live = fakeBank({ earliest: "2026-01-01", today });
     vi.spyOn(EnableBankingClient, "create").mockResolvedValue(live as any);

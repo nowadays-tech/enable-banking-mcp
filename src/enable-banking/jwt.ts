@@ -139,7 +139,7 @@ export async function signJWT(
   return `${signingInput}.${encodedSignature}`;
 }
 
-export function createJWTPayload(appId: string): JWTPayload {
+export function createJWTPayload(): JWTPayload {
   const now = Math.floor(Date.now() / 1000);
   return {
     iss: "enablebanking.com",

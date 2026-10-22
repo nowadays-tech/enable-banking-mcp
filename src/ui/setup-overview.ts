@@ -64,15 +64,7 @@ function bankCard(conn: OverviewConnection): string {
           <div class="bank-meta">${escapeHtml(conn.aspspName)} · ${kind} · ${conn.accountCount} account${conn.accountCount === 1 ? "" : "s"} · ${expired ? `expired ${fmtDate(conn.validUntil)}` : `valid until ${fmtDate(conn.validUntil)}`}</div>
         </div>
         <div class="bank-actions">
-          <form action="/auth/start" method="POST" id="renew-${id}">
-            <input type="hidden" name="connection_id" value="${id}" />
-            <input type="hidden" name="label" value="${label}" />
-            <input type="hidden" name="psu_type" value="${escapeHtml(conn.psuType)}" />
-            <input type="hidden" name="aspsp_id" value="${escapeHtml(conn.aspspName)}" />
-            <input type="hidden" name="aspsp_name" value="${escapeHtml(conn.aspspName)}" />
-            <input type="hidden" name="country" value="${escapeHtml(conn.aspspCountry)}" />
-            <button type="submit" class="${expired ? "btn" : "btn-outline"} btn-sm">${expired ? "Reconnect" : "Renew"}</button>
-          </form>
+          <a class="btn ${expired ? "" : "btn-outline"} btn-sm" href="/renew/${escapeHtml(encodeURIComponent(conn.id))}">${expired ? "Reconnect" : "Renew"}</a>
           <form action="/connections/refresh" method="POST">
             <input type="hidden" name="connection_id" value="${id}" />
             <button type="submit" class="btn-ghost btn-sm" title="Re-read the accounts this consent covers"${expired ? " disabled" : ""}>Refresh accounts</button>
@@ -192,18 +184,7 @@ export function renderSetupOverview(
             <button type="button" class="btn-outline btn-sm" onclick="copyText('mcpUrl', this)">${icons.copy}<span>Copy</span></button>
           </div>
           ${alert({ variant: "default", inline: true, description: "Adding a client doesn't add a bank. Use \u201cAdd another bank\u201d above for that." })}
-          <details class="ui-collapsible mt-3">
-            <summary>${icons.chevronDown} Use a bearer token instead (Cursor, Claude Code)</summary>
-            <pre class="code-block pre"><code id="cursorConfig">{
-  "mcpServers": {
-    "banking": {
-      "url": "${escapeHtml(mcpUrl)}",
-      "headers": { "Authorization": "Bearer YOUR_AUTH_SECRET" }
-    }
-  }
-}</code></pre>
-            <p class="text-muted text-xs">Bearer-token clients see all banks and aren't listed below.</p>
-          </details>`,
+          <p class="text-muted text-xs mt-3">Cursor and Claude Code use the same URL and sign in through OAuth too.</p>`,
       })}
       ${card({ title: "Connected apps", content: clientList, className: "mt-3" })}
     </section>`;

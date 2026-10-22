@@ -153,7 +153,8 @@ export function parseScopeForm(
     const cid = entry.slice(0, sep);
     const aid = entry.slice(sep + 1);
     if (whole.has(cid) || !byId.get(cid)?.has(aid)) continue;
-    (partial[cid] ||= []).includes(aid) || partial[cid].push(aid);
+    partial[cid] = partial[cid] || [];
+    if (!partial[cid].includes(aid)) partial[cid].push(aid);
   }
   // Every account of a bank ticked individually is the same as the whole bank.
   for (const [cid, ids] of Object.entries(partial)) {

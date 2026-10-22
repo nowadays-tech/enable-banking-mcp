@@ -5,15 +5,13 @@
   "compatibility_date": "2026-10-12",
   "compatibility_flags": ["nodejs_compat"],
 
-  // KV namespaces - IDs omitted to enable wrangler auto-provisioning.
+  // KV namespaces - IDs omitted on purpose. The first deploy provisions them;
+  // later deploys reuse the namespaces already bound to the Worker under these
+  // binding names, so a deploy copy of this repo needs no IDs either.
   // Deploy to Cloudflare: name them differently to avoid collision, e.g.:
   //   enable-banking-mcp-data and enable-banking-mcp-oauth
   //
-  // For local development, either:
-  //   1. Use `wrangler dev` which auto-creates local KV storage, OR
-  //   2. Create remote namespaces and add "id" fields:
-  //        npx wrangler kv namespace create BANKING_KV
-  //        npx wrangler kv namespace create OAUTH_KV
+  // For local development, `wrangler dev` creates local KV storage.
   "kv_namespaces": [
     { "binding": "BANKING_KV" },
     { "binding": "OAUTH_KV" }
@@ -24,10 +22,13 @@
     "enabled": true
   }
 
-  // Required secret (set via `wrangler secret put` or Cloudflare dashboard):
+  // Secrets (set via `wrangler secret put` or Cloudflare dashboard):
   //
   // AUTH_SECRET (required)
-  //   Password for web UI login, OAuth consent, and bearer token authentication
+  //   Password for web UI login and OAuth consent
+  //
+  // ENCRYPTION_SECRET (recommended)
+  //   Encrypts the Enable Banking private key in KV; falls back to AUTH_SECRET
   //
   // Optional secrets (can also be configured via the setup wizard after deploy):
   //

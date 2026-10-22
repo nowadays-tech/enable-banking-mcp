@@ -6,7 +6,10 @@ import {
   isPKCS1Format,
   isPKCS8Format,
   normalizePEM,
+  storeCredentials,
+  getStoredCredentials,
 } from "../src/enable-banking/credentials";
+import type { Env } from "../src/types";
 
 const TEST_PKCS8_KEY = `-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQD5Z7z9tKxLdmGI
@@ -206,5 +209,45 @@ describe("Encryption with Different Auth Secrets", () => {
 
     const decrypted = await decryptPrivateKey(encrypted, iv, salt, "a");
     expect(decrypted).toBe(TEST_PKCS8_KEY);
+  });
+});
+
+describe("Stored credentials and ENCRYPTION_SECRET", () => {
+  const kvStore = () => {
+    const store = new Map<string, string>();
+    return {
+      store,
+      get: async (k: string, type?: string) => {
+        const v = store.get(k);
+        return v === undefined ? null : type === "json" ? JSON.parse(v) : v;
+      },
+      put: async (k: string, v: string) => void store.set(k, v),
+      delete: async (k: string) => void store.delete(k),
+    } as unknown as KVNamespace & { store: Map<string, string> };
+  };
+  const record = (kv: { store: Map<string, string> }) => JSON.parse(kv.store.get("enable_banking_credentials")!);
+
+  it("keeps a key stored before ENCRYPTION_SECRET readable and moves it to the new secret", async () => {
+    const kv = kvStore();
+    await storeCredentials({ BANKING_KV: kv, AUTH_SECRET: "old-password" } as Env, "app-1", TEST_PKCS8_KEY);
+    expect(record(kv).encryptedWith).toBe("AUTH_SECRET");
+    // Records written before this change carry no encryptedWith at all.
+    kv.store.set("enable_banking_credentials", JSON.stringify({ ...record(kv), encryptedWith: undefined }));
+
+    const env = { BANKING_KV: kv, AUTH_SECRET: "old-password", ENCRYPTION_SECRET: "separate-key" } as Env;
+    expect((await getStoredCredentials(env))?.privateKey).toBe(TEST_PKCS8_KEY);
+    expect(record(kv).encryptedWith).toBe("ENCRYPTION_SECRET");
+
+    // AUTH_SECRET can now be rotated without losing the key.
+    const rotated = { ...env, AUTH_SECRET: "new-password" } as Env;
+    expect(await getStoredCredentials(rotated)).toEqual({ appId: "app-1", privateKey: TEST_PKCS8_KEY });
+  });
+
+  it("says which secret is missing instead of failing to decrypt", async () => {
+    const kv = kvStore();
+    await storeCredentials({ BANKING_KV: kv, AUTH_SECRET: "pw", ENCRYPTION_SECRET: "k" } as Env, "app-1", TEST_PKCS8_KEY);
+    await expect(getStoredCredentials({ BANKING_KV: kv, AUTH_SECRET: "pw" } as Env)).rejects.toThrow(
+      "encrypted with ENCRYPTION_SECRET, which is not set"
+    );
   });
 });

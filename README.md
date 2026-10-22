@@ -8,7 +8,7 @@ A personal remote MCP (Model Context Protocol) server that connects your bank ac
 - **Multiple Bank Connections**: Connect multiple banks with custom labels (e.g., "Personal", "Business")
 - **Personal & Business Accounts**: Support for both personal and business (corporate) bank accounts
 - **32 European Countries**: Supports banks across the EU/EEA via Enable Banking
-- **OAuth + Bearer Token Auth**: OAuth for Claude.ai/ChatGPT, Bearer token for Cursor/CLI tools
+- **OAuth for every client**: Claude.ai, ChatGPT, Cursor and Claude Code sign in through OAuth, with per-client bank access
 - **Guided Setup Wizard**: Step-by-step instructions right in the web UI
 - **One-Click Deploy**: Deploy to your own Cloudflare account in minutes
 - **Privacy-First**: Your data stays in your Cloudflare account, no third-party storage
@@ -35,7 +35,8 @@ When you click the Deploy to Cloudflare button, you'll be prompted for these val
 
 | Field | What to Enter |
 |-------|---------------|
-| **AUTH_SECRET** | A password you choose. Used to log in to the setup page, approve Claude/ChatGPT connections, and as the bearer token for Cursor. Use a long random value and save it in your password manager. |
+| **AUTH_SECRET** | A password you choose. Used to log in to the setup page and to approve MCP clients. Use a long random value and save it in your password manager. |
+| **ENCRYPTION_SECRET** | A second long random value, different from AUTH_SECRET. Encrypts your Enable Banking private key in KV. You never type it; keep a copy in your password manager. |
 | **BANKING_KV** | KV namespace for bank connection data. **Give it a unique name**, e.g. `enable-banking-mcp-data`. |
 | **OAUTH_KV** | KV namespace for OAuth tokens. **Give it a different name**, e.g. `enable-banking-mcp-oauth`. |
 
@@ -47,9 +48,10 @@ Enable Banking credentials (App ID and private key) are configured after deploy 
 
 ### 1. Deploy to Cloudflare
 
-Click the **Deploy to Cloudflare Workers** button above. You only need to set one secret:
+Click the **Deploy to Cloudflare Workers** button above. You set two secrets:
 
-- **AUTH_SECRET**: A strong password for authentication (used for web UI login, OAuth consent, and API bearer token)
+- **AUTH_SECRET**: A strong password for the setup page and the OAuth consent screen
+- **ENCRYPTION_SECRET**: A separate random value that encrypts the stored Enable Banking key
 
 That's it! The Enable Banking credentials are configured through the setup wizard after deployment.
 
@@ -69,12 +71,11 @@ After deployment, visit your worker URL (e.g., `https://enable-banking-mcp.YOUR-
    - The `.pem` private key downloads automatically when you generate it
 3. **Step B**: Enter your App ID and upload the `.pem` file
    - The wizard validates your credentials against the Enable Banking API
-4. **Step C**: Connect your bank(s)
-   - Give each connection a label (e.g., "Personal", "Business", "Joint Account")
+4. **Step C**: Connect your bank
+   - Give the connection a label (e.g., "Personal", "Business", "Joint Account")
    - Choose account type: Personal (individual) or Business (corporate)
-   - Select your country and bank
-   - Add multiple connections to aggregate accounts from different banks
-5. **Step D**: Copy your MCP server URLs for Claude.ai, ChatGPT, or Cursor
+   - Select your country and bank, then approve at your bank (e.g. MitID)
+5. The setup page then shows your banks, the MCP server URL, and the apps connected to it
 
 ### Multiple Bank Connections
 
@@ -85,31 +86,15 @@ You can connect multiple bank accounts from different banks or the same bank wit
 
 Each connection has a custom label that appears in the MCP tool responses, making it easy to identify which accounts belong to which connection (e.g., "Personal - Nordea", "Business - Danske Bank").
 
-To add another connection, visit the setup page and click "Add Another Connection".
+To add another connection, visit the setup page and click "Add another bank".
 
 ### 3. Add to Your AI Assistant
 
-The setup wizard (Step D) shows ready-to-copy configurations for each client:
-
-#### Claude.ai / ChatGPT (OAuth)
+Add this URL as a custom MCP server (connector) in Claude.ai, ChatGPT, Cursor or Claude Code:
 ```
 https://YOUR-WORKER.workers.dev/mcp
 ```
-OAuth handles authentication automatically.
-
-#### Cursor / Claude Code (Bearer Token)
-```json
-{
-  "mcpServers": {
-    "banking": {
-      "url": "https://YOUR-WORKER.workers.dev/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_AUTH_SECRET"
-      }
-    }
-  }
-}
-```
+The client registers itself and opens the consent screen, where you log in with AUTH_SECRET and pick which banks it may see. Revoke or edit a client's access on `/setup`.
 
 ## Manual Deployment
 
@@ -123,14 +108,12 @@ cd enable-banking-mcp
 # Install dependencies
 npm install
 
-# Create KV namespaces and note the IDs
-npx wrangler kv namespace create BANKING_KV
-npx wrangler kv namespace create OAUTH_KV
-# Copy the IDs from the output and update wrangler.jsonc
+# KV namespaces need no IDs in wrangler.jsonc: the first deploy creates them,
+# and later deploys reuse the namespaces already bound to the Worker.
 
-# Set the required secret
+# Set the secrets: a login password, and a separate key for the stored Enable Banking key
 npx wrangler secret put AUTH_SECRET
-# Enter a strong password for authentication
+npx wrangler secret put ENCRYPTION_SECRET
 
 # Deploy
 npm run deploy
@@ -140,9 +123,11 @@ Then visit your worker URL to complete the setup wizard.
 
 ## Updating
 
-The **Deploy to Cloudflare** button creates a copy of this repository in your own GitHub account, connected to Cloudflare Workers Builds. Pushes to your copy's `main` branch auto-deploy to your worker.
+The **Deploy to Cloudflare** button creates a copy of this repository in your own GitHub account, connected to Cloudflare Workers Builds. Pushes to your copy's `main` branch auto-deploy to your worker. That copy is your deploy repository; this one is upstream.
 
-To pull in updates from this upstream repository:
+Your copy does not need the KV namespace IDs in `wrangler.jsonc`. When a binding has no ID, wrangler reuses the namespace already bound to the deployed Worker under that binding name. So you can also skip the copy: in the Worker's **Settings → Build**, connect this repository (or your fork of it) instead, and every push to its `main` deploys.
+
+To pull in updates from this upstream repository into your copy:
 
 ```bash
 # Clone your copy (replace with your GitHub username)
@@ -162,7 +147,18 @@ git push
 **Your data is preserved across updates:**
 - KV namespace data (bank sessions, OAuth tokens)
 - Stored Enable Banking credentials (encrypted in KV)
-- AUTH_SECRET and any other Cloudflare secrets
+- AUTH_SECRET, ENCRYPTION_SECRET and any other Cloudflare secrets
+
+### Upgrading from a version before ENCRYPTION_SECRET or multi-bank connections
+
+- **ENCRYPTION_SECRET.** Earlier versions encrypted the stored Enable Banking key with AUTH_SECRET. Add the new secret with `npx wrangler secret put ENCRYPTION_SECRET`. The stored key stays readable: the first bank call after that decrypts it with AUTH_SECRET and re-encrypts it with ENCRYPTION_SECRET. From then on AUTH_SECRET can be rotated without re-uploading the key. Without ENCRYPTION_SECRET the server keeps using AUTH_SECRET.
+- **Bearer tokens.** AUTH_SECRET is no longer accepted as a bearer token on `/mcp`. Re-add Cursor or Claude Code with just the URL and approve it through OAuth.
+- **The first bank connection.** A bank connected before multi-bank support is stored as `session:default` without an entry in the connection list. Before deploying, add the entry once (dry run first, then `--apply`):
+  ```bash
+  node scripts/migrate-default-connection.mjs <BANKING_KV namespace id>
+  node scripts/migrate-default-connection.mjs <BANKING_KV namespace id> --apply
+  ```
+  The connection keeps the id `default`, so clients limited to it keep their access.
 
 ### Optional: Set Enable Banking Credentials via Environment
 
@@ -182,7 +178,7 @@ Lists all bank connections with their consent status, expiry dates, and renewal 
 
 Returns for each connection:
 - `connectionId`: Unique identifier for the connection
-- `label`: Human-readable name (e.g., "Default", "Business")
+- `label`: Human-readable name (e.g., "Personal", "Business")
 - `bank`: Bank name
 - `country`: Country code
 - `psuType`: "personal" or "business"
@@ -236,17 +232,20 @@ If the calling client is limited to some connections (see [Per-client bank acces
 
 | Secret | Required | Description |
 |--------|----------|-------------|
-| `AUTH_SECRET` | **Yes** | Password for web UI login, OAuth consent, and bearer token auth |
+| `AUTH_SECRET` | **Yes** | Password for web UI login and OAuth consent. Ten wrong passwords from one IP lock that IP out for 15 minutes |
+| `ENCRYPTION_SECRET` | Recommended | Encrypts the Enable Banking private key stored in KV. Without it, AUTH_SECRET is used |
 | `ENABLE_BANKING_APP_ID` | No | Your Enable Banking application ID (can be set via setup wizard) |
 | `ENABLE_BANKING_PRIVATE_KEY` | No | RSA private key PEM (can be set via setup wizard) |
-| `RESEND_API_KEY` | No | [Resend](https://resend.com) API key. Together with `OWNER_EMAIL`, enables email magic-link login |
+| `RESEND_API_KEY` | No | [Resend](https://resend.com) API key. Together with `OWNER_EMAIL` and `MAGIC_LINK_FROM`, enables email magic-link login |
 
 ### Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `OWNER_EMAIL` | No | The only address login links are sent to. Magic-link login is offered only when this and `RESEND_API_KEY` are set |
-| `MAGIC_LINK_FROM` | No | Sender for login emails. Defaults to `Enable Banking MCP <bank@updates.lab.nowadays.tech>`; the domain must be verified in Resend |
+| `OWNER_EMAIL` | No | The only address login links are sent to |
+| `MAGIC_LINK_FROM` | With magic links | Sender for login emails, e.g. `Bank MCP <bank@your-domain>`; the domain must be verified in Resend |
+
+Magic-link login is offered only when `RESEND_API_KEY`, `OWNER_EMAIL` and `MAGIC_LINK_FROM` are all set.
 
 When Enable Banking credentials are set via environment variables, they take precedence over credentials configured through the setup wizard.
 
@@ -261,17 +260,17 @@ When Enable Banking credentials are set via environment variables, they take pre
 
 When configured via the setup wizard, your Enable Banking private key is:
 - Encrypted with AES-256-GCM before storage
-- Key derived from your AUTH_SECRET using HKDF
+- Key derived from ENCRYPTION_SECRET (or AUTH_SECRET when that is unset) using HKDF
 - Never rendered back in the UI
 - Stored only in your Cloudflare KV namespace
 
 ## Authentication
 
-This server supports two authentication methods:
+Every page except `/privacy`, `/terms`, `/login`, `/auth/magic`, `/callback` and `/.well-known/*` needs a logged-in session. Ten wrong passwords from one IP (on `/login` or the consent screen) lock that IP out for 15 minutes.
 
-### OAuth 2.0 (for Claude.ai, ChatGPT, Grok)
+### OAuth 2.0 (for Claude.ai, ChatGPT, Grok, Cursor, Claude Code)
 - Supports dynamic client registration (MCP spec compliant)
-- Single-owner consent screen: log in with your `AUTH_SECRET`, or with an emailed one-time login link (15 min) when `RESEND_API_KEY` and `OWNER_EMAIL` are set
+- Single-owner consent screen: log in with your `AUTH_SECRET`, or with an emailed one-time login link (15 min) when magic-link login is configured
 - Endpoints: `/authorize`, `/token`, `/register`
 
 ### Per-client bank access
@@ -281,10 +280,6 @@ After logging in, the consent screen lists your bank connections as checkboxes (
 - Tokens issued before this feature have no `scopeGroups` and keep seeing all connections
 
 Rename a connection (e.g. "Default" → "Personal") on `/setup`.
-
-### Bearer Token (for Cursor, CLI tools)
-- Simple: use your `AUTH_SECRET` as the bearer token
-- Header: `Authorization: Bearer YOUR_AUTH_SECRET`
 
 ## Limitations & Notes
 
@@ -309,7 +304,7 @@ Rename a connection (e.g. "Default" → "Personal") on `/setup`.
 ### Security & Privacy
 
 - **Your data stays private**: All data is stored in your own Cloudflare KV namespace
-- **OAuth + Bearer auth**: Flexible authentication for different clients
+- **OAuth only**: Every MCP client gets its own revocable grant
 - **No logging**: Transaction data is not logged or stored beyond the session
 - **JWT signing**: All Enable Banking API calls are authenticated with your private key
 - **HTTPS only**: All connections use TLS encryption
@@ -352,6 +347,9 @@ npm test
 # Type check
 npm run typecheck
 
+# Lint (Biome)
+npm run lint
+
 # Deploy
 npm run deploy
 ```
@@ -379,7 +377,10 @@ npm run deploy
 ## Troubleshooting
 
 ### "Invalid or missing bearer token"
-Ensure you're sending the `Authorization: Bearer YOUR_AUTH_SECRET` header with MCP requests.
+The client has no valid OAuth token. Remove the server from the client and add the URL again; it will open the consent screen.
+
+### "Too many wrong passwords"
+Ten wrong passwords came from your IP. Wait 15 minutes, or use the emailed login link if it is configured.
 
 ### OAuth authorization fails
 Check that:

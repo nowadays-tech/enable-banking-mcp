@@ -10,6 +10,9 @@ import type {
   TransactionsResponse,
   ASPSP,
   BankSession,
+  ConnectedSession,
+  ConnectionIndex,
+  ConnectionInfo,
   ConnectionStatus,
   ConnectionStatusInfo,
 } from "../types";
@@ -84,7 +87,7 @@ export class EnableBankingClient {
 
   private async getAuthToken(): Promise<string> {
     const creds = await this.getCredentials();
-    const payload = createJWTPayload(creds.appId);
+    const payload = createJWTPayload();
     return await signJWT(payload, creds.privateKey, creds.appId);
   }
 
@@ -245,16 +248,16 @@ export class EnableBankingClient {
 
 export async function getStoredSession(
   kv: KVNamespace,
-  connectionId: string = "default"
-): Promise<import("../types").BankSession | null> {
+  connectionId: string
+): Promise<BankSession | null> {
   const data = await kv.get(`session:${connectionId}`, "json");
-  return data as import("../types").BankSession | null;
+  return data as BankSession | null;
 }
 
 export async function storeSession(
   kv: KVNamespace,
-  session: import("../types").BankSession,
-  connectionId: string = "default"
+  session: BankSession,
+  connectionId: string
 ): Promise<void> {
   const expirationTtl = Math.floor(
     (new Date(session.consentValidUntil).getTime() - Date.now()) / 1000
@@ -266,7 +269,7 @@ export async function storeSession(
 
 export async function deleteStoredSession(
   kv: KVNamespace,
-  connectionId: string = "default"
+  connectionId: string
 ): Promise<void> {
   await kv.delete(`session:${connectionId}`);
 }
@@ -275,21 +278,21 @@ const CONNECTION_INDEX_KEY = "connection_index";
 
 export async function getConnectionIndex(
   kv: KVNamespace
-): Promise<import("../types").ConnectionIndex | null> {
+): Promise<ConnectionIndex | null> {
   const data = await kv.get(CONNECTION_INDEX_KEY, "json");
-  return data as import("../types").ConnectionIndex | null;
+  return data as ConnectionIndex | null;
 }
 
 export async function storeConnectionIndex(
   kv: KVNamespace,
-  index: import("../types").ConnectionIndex
+  index: ConnectionIndex
 ): Promise<void> {
   await kv.put(CONNECTION_INDEX_KEY, JSON.stringify(index));
 }
 
 export async function addConnectionToIndex(
   kv: KVNamespace,
-  connection: import("../types").ConnectionInfo
+  connection: ConnectionInfo
 ): Promise<void> {
   const index = await getConnectionIndex(kv) || { connections: [], updatedAt: new Date().toISOString() };
   const existingIdx = index.connections.findIndex(c => c.id === connection.id);
@@ -313,61 +316,40 @@ export async function removeConnectionFromIndex(
   await storeConnectionIndex(kv, index);
 }
 
-/** Rename a connection (index entry and stored session). Returns false if not found. */
+/** Rename a connection in the index. Returns false if not found. */
 export async function renameConnection(
   kv: KVNamespace,
   connectionId: string,
   label: string
 ): Promise<boolean> {
-  const session = await getStoredSession(kv, connectionId);
-  if (!session) return false;
-  await storeSession(kv, { ...session, label, updatedAt: new Date().toISOString() }, connectionId);
   const index = await getConnectionIndex(kv);
   const entry = index?.connections.find((c) => c.id === connectionId);
-  if (index && entry) {
-    entry.label = label;
-    index.updatedAt = new Date().toISOString();
-    await storeConnectionIndex(kv, index);
-  }
+  if (!index || !entry) return false;
+  entry.label = label;
+  index.updatedAt = new Date().toISOString();
+  await storeConnectionIndex(kv, index);
   return true;
 }
 
-export async function getAllSessions(
-  kv: KVNamespace
-): Promise<Array<import("../types").BankSession & { connectionId: string }>> {
-  const sessions: Array<import("../types").BankSession & { connectionId: string }> = [];
-  
-  const defaultSession = await getStoredSession(kv, "default");
-  if (defaultSession) {
-    sessions.push({ ...defaultSession, connectionId: "default" });
-  }
-  
+/** Every indexed connection that still has a stored session, with its label and PSU type from the index. */
+export async function getAllSessions(kv: KVNamespace): Promise<ConnectedSession[]> {
   const index = await getConnectionIndex(kv);
-  if (index) {
-    for (const conn of index.connections) {
-      if (conn.id === "default") continue;
-      const session = await getStoredSession(kv, conn.id);
-      if (session) {
-        sessions.push({ ...session, connectionId: conn.id });
-      }
+  const sessions: ConnectedSession[] = [];
+  for (const conn of index?.connections ?? []) {
+    const session = await getStoredSession(kv, conn.id);
+    if (session) {
+      sessions.push({ ...session, connectionId: conn.id, label: conn.label, psuType: conn.psuType });
     }
   }
-  
   return sessions;
 }
 
 export async function findConnectionByAccountId(
   kv: KVNamespace,
   accountId: string
-): Promise<{ session: import("../types").BankSession; connectionId: string } | null> {
+): Promise<ConnectedSession | null> {
   const sessions = await getAllSessions(kv);
-  for (const session of sessions) {
-    const account = session.accounts.find(a => a.accountId === accountId);
-    if (account) {
-      return { session, connectionId: session.connectionId };
-    }
-  }
-  return null;
+  return sessions.find((s) => s.accounts.some((a) => a.accountId === accountId)) ?? null;
 }
 
 export function generateConnectionId(): string {
@@ -395,40 +377,33 @@ export function isConsentExpiring(session: BankSession): boolean {
   return getConnectionStatus(session) === "expiring";
 }
 
-export function getConnectionId(session: BankSession): string {
-  if (session.connectionId) return session.connectionId;
-  if (session.label && session.label !== "Default") return session.label;
-  return "default";
-}
-
-export function getConnectionLabel(session: BankSession): string {
-  return session.label || "Default";
+export function renewUrl(baseUrl: string, connectionId: string): string {
+  return `${baseUrl}/renew/${encodeURIComponent(connectionId)}`;
 }
 
 export function buildConnectionInfo(
-  session: BankSession,
+  session: ConnectedSession,
   baseUrl: string
 ): ConnectionStatusInfo {
-  const connectionId = getConnectionId(session);
   const daysLeft = getDaysUntilExpiry(session);
   const status = getConnectionStatus(session);
   
   return {
-    connectionId,
-    label: getConnectionLabel(session),
+    connectionId: session.connectionId,
+    label: session.label,
     bank: session.aspspName,
     country: session.aspspCountry,
-    psuType: session.psuType || "personal",
+    psuType: session.psuType,
     validUntil: session.consentValidUntil,
     daysLeft,
     status,
-    renewUrl: `${baseUrl}/renew/${encodeURIComponent(connectionId)}`,
+    renewUrl: renewUrl(baseUrl, session.connectionId),
     accountCount: session.accounts.length,
   };
 }
 
 export function buildExpiryWarning(
-  sessions: BankSession[],
+  sessions: ConnectedSession[],
   baseUrl: string
 ): string | null {
   const warnings: string[] = [];
@@ -437,17 +412,15 @@ export function buildExpiryWarning(
     const status = getConnectionStatus(session);
     if (status === "expiring" || status === "expired") {
       const daysLeft = getDaysUntilExpiry(session);
-      const label = getConnectionLabel(session);
-      const connectionId = getConnectionId(session);
-      const renewUrl = `${baseUrl}/renew/${encodeURIComponent(connectionId)}`;
+      const url = renewUrl(baseUrl, session.connectionId);
       
       if (status === "expired") {
         warnings.push(
-          `⚠️ Connection '${label}' has expired. Renew here: ${renewUrl}`
+          `⚠️ Connection '${session.label}' has expired. Renew here: ${url}`
         );
       } else {
         warnings.push(
-          `⚠️ Connection '${label}' expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}. Renew here: ${renewUrl}`
+          `⚠️ Connection '${session.label}' expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}. Renew here: ${url}`
         );
       }
     }

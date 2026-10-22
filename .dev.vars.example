@@ -1,8 +1,11 @@
 # Copy this file to .dev.vars and fill in your values.
 # The Deploy to Cloudflare button reads this file to decide which secrets to ask for,
-# so only AUTH_SECRET is listed here. Enable Banking credentials are added after deploy
-# in the setup wizard (or optionally as ENABLE_BANKING_APP_ID / ENABLE_BANKING_PRIVATE_KEY
+# so only the two secrets below are listed here. Enable Banking credentials are added after
+# deploy in the setup wizard (or optionally as ENABLE_BANKING_APP_ID / ENABLE_BANKING_PRIVATE_KEY
 # secrets in .dev.vars for local development).
 
-# Secret password for authentication (OAuth consent, web UI, and bearer token)
+# Password for the setup page and the OAuth consent screen
 AUTH_SECRET=
+
+# Separate random value that encrypts the Enable Banking private key stored in KV
+ENCRYPTION_SECRET=

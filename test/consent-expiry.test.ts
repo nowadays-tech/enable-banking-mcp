@@ -1,12 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { BankSession, ConnectionInfo, ConnectionStatus } from "../src/types";
+import type { ConnectedSession } from "../src/types";
 import {
   isConsentExpired,
   getDaysUntilExpiry,
   getConnectionStatus,
   isConsentExpiring,
-  getConnectionId,
-  getConnectionLabel,
   buildConnectionInfo,
   buildExpiryWarning,
   isExpiredSessionError,
@@ -14,8 +12,8 @@ import {
 
 const createMockSession = (
   daysUntilExpiry: number,
-  overrides: Partial<BankSession> = {}
-): BankSession => {
+  overrides: Partial<ConnectedSession> = {}
+): ConnectedSession => {
   const expiryDate = new Date();
   expiryDate.setDate(expiryDate.getDate() + daysUntilExpiry);
   
@@ -36,6 +34,9 @@ const createMockSession = (
     ],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    connectionId: "conn_main",
+    label: "Main",
+    psuType: "personal",
     ...overrides,
   };
 };
@@ -140,38 +141,6 @@ describe("Connection Status", () => {
   });
 });
 
-describe("Connection Identification", () => {
-  it("should return connectionId if present", () => {
-    const session = createMockSession(30, { connectionId: "my-connection" });
-    expect(getConnectionId(session)).toBe("my-connection");
-  });
-
-  it("should return label as connectionId if no connectionId but label exists", () => {
-    const session = createMockSession(30, { label: "Privat" });
-    expect(getConnectionId(session)).toBe("Privat");
-  });
-
-  it("should return 'default' for Default label", () => {
-    const session = createMockSession(30, { label: "Default" });
-    expect(getConnectionId(session)).toBe("default");
-  });
-
-  it("should return 'default' if no connectionId or label", () => {
-    const session = createMockSession(30);
-    expect(getConnectionId(session)).toBe("default");
-  });
-
-  it("should return label if present", () => {
-    const session = createMockSession(30, { label: "Privat" });
-    expect(getConnectionLabel(session)).toBe("Privat");
-  });
-
-  it("should return 'Default' if no label", () => {
-    const session = createMockSession(30);
-    expect(getConnectionLabel(session)).toBe("Default");
-  });
-});
-
 describe("Connection Info Builder", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -202,12 +171,6 @@ describe("Connection Info Builder", () => {
     expect(info.accountCount).toBe(1);
   });
 
-  it("should default psuType to 'personal' if not set", () => {
-    const session = createMockSession(30);
-    const info = buildConnectionInfo(session, "https://example.com");
-    expect(info.psuType).toBe("personal");
-  });
-
   it("should URL-encode connectionId in renewUrl", () => {
     const session = createMockSession(30, { connectionId: "my connection" });
     const info = buildConnectionInfo(session, "https://example.com");
@@ -232,13 +195,13 @@ describe("Expiry Warning Builder", () => {
   });
 
   it("should return warning for expiring connection", () => {
-    const session = createMockSession(10, { label: "Privat" });
+    const session = createMockSession(10, { label: "Privat", connectionId: "conn_privat" });
     const warning = buildExpiryWarning([session], "https://example.com");
     
     expect(warning).not.toBeNull();
     expect(warning).toContain("Privat");
     expect(warning).toContain("10 days");
-    expect(warning).toContain("https://example.com/renew/Privat");
+    expect(warning).toContain("https://example.com/renew/conn_privat");
   });
 
   it("should return warning for expired connection", () => {
@@ -323,7 +286,7 @@ describe("PendingAuth with Renewal Fields", () => {
       get: vi.fn(),
     };
 
-    const { storePendingAuth, getPendingAuth } = await import(
+    const { storePendingAuth } = await import(
       "../src/enable-banking/client"
     );
 

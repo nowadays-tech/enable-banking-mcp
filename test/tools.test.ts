@@ -88,7 +88,7 @@ function categorizeTransactionHelper(tx: Transaction): string {
   const creditor = (tx.creditor_name || "").toLowerCase();
 
   if (mcc) {
-    const mccNum = parseInt(mcc);
+    const mccNum = parseInt(mcc, 10);
     if (mccNum >= 5411 && mccNum <= 5499) return "Groceries";
     if (mccNum >= 5812 && mccNum <= 5814) return "Restaurants";
     if (mccNum >= 4011 && mccNum <= 4789) return "Transportation";
@@ -225,9 +225,9 @@ describe("Spending Summary", () => {
 
     expect(totalSpending).toBe(170);
     expect(totalIncome).toBe(2500);
-    expect(spending["Groceries"]).toBe(50);
-    expect(spending["Restaurants"]).toBe(120);
-    expect(income["Other"]).toBe(2500);
+    expect(spending.Groceries).toBe(50);
+    expect(spending.Restaurants).toBe(120);
+    expect(income.Other).toBe(2500);
   });
 
   it("should calculate net flow correctly", () => {
@@ -289,7 +289,6 @@ describe("Date Range Defaults", () => {
 
   it("should handle last3 months for summary", () => {
     const now = new Date();
-    const toDate = now.toISOString().split("T")[0];
     now.setMonth(now.getMonth() - 3);
     const fromDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 
@@ -528,7 +527,7 @@ describe("Connect Request Management", () => {
   const createMockKV = () => {
     const store = new Map<string, string>();
     return {
-      put: vi.fn(async (key: string, value: string, options?: { expirationTtl?: number }) => {
+      put: vi.fn(async (key: string, value: string, _options?: { expirationTtl?: number }) => {
         store.set(key, value);
       }),
       get: vi.fn(async (key: string, type?: string) => {

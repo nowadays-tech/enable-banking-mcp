@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { renderErrorPage, renderConsentPage } from "../src/ui/pages";
 import type { Env } from "../src/types";
 
 // Mock the crypto API for PKCE
 const mockCrypto = {
-  randomUUID: () => "test-uuid-" + Math.random().toString(36).slice(2),
+  randomUUID: () => `test-uuid-${Math.random().toString(36).slice(2)}`,
   getRandomValues: (arr: Uint8Array) => {
     for (let i = 0; i < arr.length; i++) {
       arr[i] = Math.floor(Math.random() * 256);
@@ -12,7 +12,7 @@ const mockCrypto = {
     return arr;
   },
   subtle: {
-    digest: async (algorithm: string, data: ArrayBuffer) => {
+    digest: async (_algorithm: string, data: ArrayBuffer) => {
       // Simple mock hash for testing
       const dataArr = new Uint8Array(data);
       const hash = new Uint8Array(32);
@@ -167,7 +167,7 @@ describe("OAuth Authorization Request Parsing", () => {
   });
 
   it("should parse PKCE parameters", async () => {
-    const { verifier, challenge } = await generatePKCE();
+    const { challenge } = await generatePKCE();
     
     const url = new URL("https://example.com/authorize");
     url.searchParams.set("client_id", "test-client");
@@ -412,7 +412,7 @@ describe("Full OAuth Flow Simulation", () => {
     
     // Step 4: Simulate authorization callback
     const callbackUrl = new URL(registrationRequest.redirect_uris[0]);
-    const authCode = "authorization-code-" + Date.now();
+    const authCode = `authorization-code-${Date.now()}`;
     callbackUrl.searchParams.set("code", authCode);
     callbackUrl.searchParams.set("state", "random-state-123");
     callbackUrl.searchParams.set("iss", "https://example.com");
@@ -432,10 +432,10 @@ describe("Full OAuth Flow Simulation", () => {
     
     // Step 6: Simulate token response
     const tokenResponse = {
-      access_token: "access-token-" + Date.now(),
+      access_token: `access-token-${Date.now()}`,
       token_type: "bearer",
       expires_in: 3600,
-      refresh_token: "refresh-token-" + Date.now(),
+      refresh_token: `refresh-token-${Date.now()}`,
       scope: "banking:read",
       resource: "https://example.com/mcp",
     };
@@ -558,7 +558,7 @@ describe("OAuth Provider Integration", () => {
   });
 
   it("should validate authorization request with resource and PKCE params", async () => {
-    const { verifier, challenge } = await generatePKCE();
+    const { challenge } = await generatePKCE();
     
     const authUrl = new URL("https://example.com/authorize");
     authUrl.searchParams.set("client_id", "test-client");

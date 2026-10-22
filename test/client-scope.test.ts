@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 const handlers: Record<string, (args: any, extra?: any) => Promise<any>> = {};
 vi.mock("@modelcontextprotocol/server", () => ({
@@ -60,6 +60,7 @@ const sess = (id: string, label: string, accounts: string[]) =>
 function threeBanks() {
   const index = {
     connections: [
+      { id: "default", label: "Personlige bankkonti", psuType: "personal", aspspName: "Danske Bank", aspspCountry: "DK", validUntil: future, createdAt: future },
       { id: "conn_hold", label: "Holm Friis Holding", psuType: "business", aspspName: "Nordea", aspspCountry: "DK", validUntil: future, createdAt: future },
       { id: "conn_kbh", label: "Holm Friis København", psuType: "business", aspspName: "Spar Nord", aspspCountry: "DK", validUntil: future, createdAt: future },
     ],
@@ -218,7 +219,7 @@ describe("setup overview: accounts + access editor", () => {
   const html = renderWizardPage("https://x.dev", {
     hasCredentials: true, credentialsFromEnv: false, hasBankSession: true, connections,
     clients: [{ grantId: "g1", clientId: "c", clientName: "Grok", connectedAt: Date.now(), scope: ["default"], accountIds: { default: ["p2"] }, edited: true }],
-  }, ["DK"]);
+  });
   it("lists accounts with masked IBANs under each bank and a Refresh action", () => {
     expect(html).toContain("Lønkonto");
     expect(html).toContain("•••• 4010");

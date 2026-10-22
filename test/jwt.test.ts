@@ -32,8 +32,8 @@ sp2zACbZZjZ2qZdLihnQ2lE=
 
 describe("JWT Signing", () => {
   it("should create a valid JWT payload with correct iss and aud for Enable Banking", () => {
-    const appId = "test-app-id";
-    const payload = createJWTPayload(appId);
+    const _appId = "test-app-id";
+    const payload = createJWTPayload();
 
     expect(payload.iss).toBe("enablebanking.com");
     expect(payload.aud).toBe("api.enablebanking.com");
@@ -44,7 +44,7 @@ describe("JWT Signing", () => {
   });
 
   it("should sign JWT and produce three parts", async () => {
-    const payload = createJWTPayload("test-app");
+    const payload = createJWTPayload();
     const jwt = await signJWT(payload, TEST_PKCS8_PRIVATE_KEY);
 
     const parts = jwt.split(".");
@@ -52,7 +52,7 @@ describe("JWT Signing", () => {
   });
 
   it("should produce consistent header without kid when not provided", async () => {
-    const payload = createJWTPayload("test-app");
+    const payload = createJWTPayload();
     const jwt = await signJWT(payload, TEST_PKCS8_PRIVATE_KEY);
 
     const [headerB64] = jwt.split(".");
@@ -67,7 +67,7 @@ describe("JWT Signing", () => {
 
   it("should include kid in header when provided", async () => {
     const appId = "my-app-id";
-    const payload = createJWTPayload(appId);
+    const payload = createJWTPayload();
     const jwt = await signJWT(payload, TEST_PKCS8_PRIVATE_KEY, appId);
 
     const [headerB64] = jwt.split(".");
@@ -82,7 +82,7 @@ describe("JWT Signing", () => {
 
   it("should include correct Enable Banking claims in JWT", async () => {
     const appId = "my-test-app";
-    const payload = createJWTPayload(appId);
+    const payload = createJWTPayload();
     const jwt = await signJWT(payload, TEST_PKCS8_PRIVATE_KEY, appId);
 
     const [, payloadB64] = jwt.split(".");
@@ -124,7 +124,7 @@ describe("JWT Signing", () => {
 describe("JWT Payload Timing", () => {
   it("should set iat to current timestamp", () => {
     const before = Math.floor(Date.now() / 1000);
-    const payload = createJWTPayload("test");
+    const payload = createJWTPayload();
     const after = Math.floor(Date.now() / 1000);
 
     expect(payload.iat).toBeGreaterThanOrEqual(before);
@@ -132,7 +132,7 @@ describe("JWT Payload Timing", () => {
   });
 
   it("should set exp to 1 hour after iat", () => {
-    const payload = createJWTPayload("test");
+    const payload = createJWTPayload();
     expect(payload.exp - payload.iat).toBe(3600);
   });
 });

@@ -70,7 +70,7 @@ export async function forEachTransactionPage(
   accountId: string,
   dateFrom: string | undefined,
   dateTo: string | undefined,
-  onPage: (page: TransactionsResponse) => boolean | void,
+  onPage: (page: TransactionsResponse) => boolean | undefined,
   maxPages = 50
 ): Promise<void> {
   let key: string | undefined;

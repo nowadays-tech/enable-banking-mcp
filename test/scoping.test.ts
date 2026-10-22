@@ -17,9 +17,8 @@ import {
   safeReturnPath,
   sendMagicLink,
   magicLinkEnabled,
-  DEFAULT_MAGIC_LINK_FROM,
 } from "../src/auth/magic-link";
-import { renameConnection, getConnectionIndex, getStoredSession } from "../src/enable-banking/client";
+import { renameConnection, getConnectionIndex, getAllSessions } from "../src/enable-banking/client";
 import { renderConsentPage, renderConnectPage } from "../src/ui/pages";
 import type { Env } from "../src/types";
 
@@ -60,6 +59,7 @@ const sess = (id: string, label: string, accounts: string[]) =>
 function threeBanks() {
   const index = {
     connections: [
+      { id: "default", label: "Personlige bankkonti", psuType: "personal", aspspName: "Danske Bank", aspspCountry: "DK", validUntil: future, createdAt: future },
       { id: "conn_hold", label: "Holm Friis Holding", psuType: "business", aspspName: "Nordea", aspspCountry: "DK", validUntil: future, createdAt: future },
       { id: "conn_kbh", label: "Holm Friis København", psuType: "business", aspspName: "Spar Nord", aspspCountry: "DK", validUntil: future, createdAt: future },
     ],
@@ -184,10 +184,11 @@ describe("tool scoping", () => {
 });
 
 describe("magic link", () => {
-  it("is enabled only with both RESEND_API_KEY and OWNER_EMAIL", () => {
+  it("is enabled only with RESEND_API_KEY, OWNER_EMAIL and MAGIC_LINK_FROM", () => {
     expect(magicLinkEnabled({ RESEND_API_KEY: "k" })).toBe(false);
     expect(magicLinkEnabled({ OWNER_EMAIL: "a@b.c" })).toBe(false);
-    expect(magicLinkEnabled({ RESEND_API_KEY: "k", OWNER_EMAIL: "a@b.c" })).toBe(true);
+    expect(magicLinkEnabled({ RESEND_API_KEY: "k", OWNER_EMAIL: "a@b.c" })).toBe(false);
+    expect(magicLinkEnabled({ RESEND_API_KEY: "k", OWNER_EMAIL: "a@b.c", MAGIC_LINK_FROM: "Bank <bank@x.dev>" })).toBe(true);
   });
 
   it("tokens are one-time use and stored with a short TTL", async () => {
@@ -205,15 +206,15 @@ describe("magic link", () => {
     expect(safeReturnPath("/\\evil.example")).toBe("/setup");
   });
 
-  it("sends to OWNER_EMAIL from the default sender and rate-limits", async () => {
+  it("sends to OWNER_EMAIL from MAGIC_LINK_FROM and rate-limits", async () => {
     const kv = mockKV();
     const fetchImpl = vi.fn(async () => new Response("{}", { status: 200 }));
-    const env = { BANKING_KV: kv, RESEND_API_KEY: "test-key", OWNER_EMAIL: "owner@example.com" } as unknown as Env;
+    const env = { BANKING_KV: kv, RESEND_API_KEY: "test-key", OWNER_EMAIL: "owner@example.com", MAGIC_LINK_FROM: "Bank <bank@x.dev>" } as unknown as Env;
     expect(await sendMagicLink(env, "https://x.workers.dev", "/setup", fetchImpl as any)).toBe("sent");
     const [, init] = fetchImpl.mock.calls[0] as any;
     const body = JSON.parse(init.body);
     expect(body.to).toEqual(["owner@example.com"]);
-    expect(body.from).toBe(DEFAULT_MAGIC_LINK_FROM);
+    expect(body.from).toBe("Bank <bank@x.dev>");
     expect(body.text).toMatch(/https:\/\/x\.workers\.dev\/auth\/magic\?token=/);
     expect(await sendMagicLink(env, "https://x.workers.dev", "/setup", fetchImpl as any)).toBe("rate_limited");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -221,14 +222,11 @@ describe("magic link", () => {
 });
 
 describe("renameConnection", () => {
-  it("renames the Default connection in both session and index", async () => {
+  it("renames a connection in the index, the one source of labels", async () => {
     const kv = threeBanks();
-    const index = JSON.parse(kv.store.get("connection_index")!);
-    index.connections.push({ id: "default", label: "Default", psuType: "personal", aspspName: "Danske", aspspCountry: "DK", validUntil: future, createdAt: future });
-    kv.store.set("connection_index", JSON.stringify(index));
-    expect(await renameConnection(kv as any, "default", "Personlige bankkonti")).toBe(true);
-    expect((await getStoredSession(kv as any, "default"))!.label).toBe("Personlige bankkonti");
-    expect((await getConnectionIndex(kv as any))!.connections.find((c) => c.id === "default")!.label).toBe("Personlige bankkonti");
+    expect(await renameConnection(kv as any, "default", "Privat")).toBe(true);
+    expect((await getConnectionIndex(kv as any))!.connections.find((c) => c.id === "default")!.label).toBe("Privat");
+    expect((await getAllSessions(kv as any)).find((s) => s.connectionId === "default")!.label).toBe("Privat");
     expect(await renameConnection(kv as any, "nope", "X")).toBe(false);
   });
 });
@@ -255,7 +253,7 @@ describe("consent and connect pages", () => {
     expect(renderConsentPage("Grok", [], "h", true, undefined, { magicLinkEnabled: true })).toContain('value="magic"');
   });
   it("editable connect page asks for label and account type", () => {
-    const html = renderConnectPage("https://x", "", "personal", "DK", [], "tok", undefined, { editable: true, countries: ["DK", "SE"], returnTo: "/authorize?a=1" });
+    const html = renderConnectPage("", "personal", "DK", [], "tok", undefined, { editable: true, countries: ["DK", "SE"], returnTo: "/authorize?a=1" });
     expect(html).toContain('name="label"');
     expect(html).toContain('<select id="psuTypeSelect" name="psu_type" form="connectForm">');
     expect(html).toContain('href="/authorize?a=1"');

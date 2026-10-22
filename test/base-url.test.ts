@@ -39,6 +39,12 @@ const session = (days: number) => ({
   updatedAt: new Date().toISOString(),
 });
 
+// The connection that predates multi-bank support keeps the id "default" after migration.
+const defaultIndex = JSON.stringify({
+  connections: [{ id: "default", label: "Privat", psuType: "personal", aspspName: "Danske Bank", aspspCountry: "DK", validUntil: "", createdAt: "" }],
+  updatedAt: "",
+});
+
 describe("ensureBaseUrl", () => {
   it("stores the base URL when missing and skips the write when unchanged", async () => {
     const kv = mockKV();
@@ -50,13 +56,13 @@ describe("ensureBaseUrl", () => {
 });
 
 describe("connection_status and expired-session mapping", () => {
-  it("returns the Default connection with days left once the base URL is known", async () => {
-    const kv = mockKV({ "session:default": JSON.stringify(session(88)) });
+  it("returns the connection with days left once the base URL is known", async () => {
+    const kv = mockKV({ "session:default": JSON.stringify(session(88)), connection_index: defaultIndex });
     await ensureBaseUrl(kv as unknown as KVNamespace, "https://x.workers.dev");
     createBankingMcpServer({ BANKING_KV: kv } as unknown as Env);
     const res = await handlers.connection_status({});
     const body = JSON.parse(res.content[0].text);
-    expect(body.connections[0].label).toBe("Default");
+    expect(body.connections[0].label).toBe("Privat");
     expect(body.connections[0].daysLeft).toBe(88);
     expect(body.connections[0].renewUrl).toBe("https://x.workers.dev/renew/default");
   });
@@ -64,6 +70,7 @@ describe("connection_status and expired-session mapping", () => {
   it("maps bank expired-session API errors to the renew message", async () => {
     const kv = mockKV({
       "session:default": JSON.stringify(session(30)),
+      connection_index: defaultIndex,
       "config:baseUrl": "https://x.workers.dev",
     });
     const client = await import("../src/enable-banking/client");
@@ -75,8 +82,10 @@ describe("connection_status and expired-session mapping", () => {
     createBankingMcpServer({ BANKING_KV: kv } as unknown as Env);
     const res = await handlers.get_balances({ account_id: "acc-1" });
     expect(res.content[0].text).toBe(
-      "Connection 'Default' has expired. Renew here: https://x.workers.dev/renew/default"
+      "Connection 'Privat' has expired. Renew here: https://x.workers.dev/renew/default"
     );
+    const all = await handlers.get_balances({});
+    expect(all.content[0].text).toContain("Use connection_status to see which connection to renew.");
   });
 });
 

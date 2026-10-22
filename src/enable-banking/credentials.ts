@@ -221,48 +221,63 @@ export async function validatePEM(pem: string): Promise<{ valid: boolean; error?
   }
 }
 
+type EncryptedWith = NonNullable<StoredCredentials["encryptedWith"]>;
+
+/** The secret new credentials are encrypted with: ENCRYPTION_SECRET, or AUTH_SECRET on deployments without it. */
+function currentEncryptionSecret(env: Env): { name: EncryptedWith; value: string } {
+  return env.ENCRYPTION_SECRET
+    ? { name: "ENCRYPTION_SECRET", value: env.ENCRYPTION_SECRET }
+    : { name: "AUTH_SECRET", value: env.AUTH_SECRET };
+}
+
 export async function storeCredentials(
-  kv: KVNamespace,
+  env: Env,
   appId: string,
-  privateKey: string,
-  authSecret: string
+  privateKey: string
 ): Promise<void> {
   const normalizedKey = await normalizePEM(privateKey);
-  const { encrypted, iv, salt } = await encryptPrivateKey(normalizedKey, authSecret);
+  const secret = currentEncryptionSecret(env);
+  const { encrypted, iv, salt } = await encryptPrivateKey(normalizedKey, secret.value);
+  const now = new Date().toISOString();
 
   const credentials: StoredCredentials = {
     appId,
     encryptedPrivateKey: encrypted,
     iv,
     salt,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    encryptedWith: secret.name,
+    createdAt: now,
+    updatedAt: now,
   };
 
-  await kv.put(KV_CREDENTIALS_KEY, JSON.stringify(credentials));
+  await env.BANKING_KV.put(KV_CREDENTIALS_KEY, JSON.stringify(credentials));
 }
 
+/**
+ * Decrypt the stored key with the secret it was encrypted with (records written
+ * before ENCRYPTION_SECRET existed have no `encryptedWith` and used AUTH_SECRET).
+ * Once ENCRYPTION_SECRET is set, an AUTH_SECRET record is re-encrypted with it on
+ * first read, so AUTH_SECRET can be rotated afterwards without re-uploading the key.
+ */
 export async function getStoredCredentials(
-  kv: KVNamespace,
-  authSecret: string
+  env: Env
 ): Promise<{ appId: string; privateKey: string } | null> {
-  const data = await kv.get(KV_CREDENTIALS_KEY, "json");
+  const data = await env.BANKING_KV.get(KV_CREDENTIALS_KEY, "json");
   if (!data) return null;
 
   const stored = data as StoredCredentials;
-  const privateKey = await decryptPrivateKey(
-    stored.encryptedPrivateKey,
-    stored.iv,
-    stored.salt,
-    authSecret
-  );
+  const encryptedWith = stored.encryptedWith || "AUTH_SECRET";
+  const secret = env[encryptedWith];
+  if (!secret) {
+    throw new Error(`Stored Enable Banking key is encrypted with ${encryptedWith}, which is not set.`);
+  }
+  const privateKey = await decryptPrivateKey(stored.encryptedPrivateKey, stored.iv, stored.salt, secret);
+
+  if (encryptedWith !== currentEncryptionSecret(env).name) {
+    await storeCredentials(env, stored.appId, privateKey);
+  }
 
   return { appId: stored.appId, privateKey };
-}
-
-export async function hasStoredCredentials(kv: KVNamespace): Promise<boolean> {
-  const data = await kv.get(KV_CREDENTIALS_KEY);
-  return data !== null;
 }
 
 export async function getStoredCredentialsMetadata(
@@ -293,7 +308,7 @@ export async function getEffectiveCredentials(
     };
   }
 
-  return await getStoredCredentials(env.BANKING_KV, env.AUTH_SECRET);
+  return await getStoredCredentials(env);
 }
 
 export function hasEnvCredentials(env: Env): boolean {

@@ -83,26 +83,27 @@ Each command outputs an ID like:
 
 **Note:** Do not commit these IDs to the upstream repository. They are specific to the user's Cloudflare account. Committing them to the user's own fork is fine.
 
-### Step 4: Generate and Set AUTH_SECRET
+### Step 4: Generate and Set AUTH_SECRET and ENCRYPTION_SECRET
 
-Generate a strong secret:
+Generate two different strong secrets:
 
 ```bash
-openssl rand -base64 32
+openssl rand -base64 32   # AUTH_SECRET
+openssl rand -base64 32   # ENCRYPTION_SECRET
 ```
 
-**Show this value to the user once** and tell them to save it in their password manager. This is their authentication password for:
-- Logging into the setup wizard
-- OAuth consent for Claude/ChatGPT
-- Bearer token for Cursor/CLI tools
+**Show these values to the user once** and tell them to save both in their password manager.
+- `AUTH_SECRET` is their password for the setup wizard and the OAuth consent screen.
+- `ENCRYPTION_SECRET` encrypts the Enable Banking private key in KV. They never type it.
 
-Set the secret in Cloudflare:
+Set the secrets in Cloudflare:
 
 ```bash
 npx wrangler secret put AUTH_SECRET
+npx wrangler secret put ENCRYPTION_SECRET
 ```
 
-Paste the generated secret when prompted. **Never print or log the secret value after showing it once.**
+Paste each generated secret when prompted. **Never print or log a secret value after showing it once.**
 
 ### Step 5: Deploy
 
@@ -154,27 +155,11 @@ The setup wizard at `/setup` handles credential storage securely—the private k
 
 After the user completes the setup wizard, give them their MCP server configuration:
 
-**For Claude.ai / ChatGPT (OAuth):**
+Every client (Claude.ai, ChatGPT, Cursor, Claude Code) uses the same URL and signs in through OAuth:
 ```
 https://YOUR-WORKER-URL/mcp
 ```
-OAuth handles authentication automatically.
-
-**For Cursor / Claude Code (Bearer Token):**
-```json
-{
-  "mcpServers": {
-    "banking": {
-      "url": "https://YOUR-WORKER-URL/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_AUTH_SECRET"
-      }
-    }
-  }
-}
-```
-
-Replace `YOUR_AUTH_SECRET` with the secret the user saved in Step 4.
+The client opens the consent screen, where the user logs in with AUTH_SECRET and picks which banks it may see.
 
 ### Step 8: Verification
 
@@ -231,11 +216,13 @@ npm run typecheck
 npm run deploy
 ```
 
-**Data persistence:** KV namespace data (bank sessions, OAuth tokens, encrypted credentials) and Cloudflare secrets (AUTH_SECRET) persist across deploys.
+**Data persistence:** KV namespace data (bank sessions, OAuth tokens, encrypted credentials) and Cloudflare secrets (AUTH_SECRET, ENCRYPTION_SECRET) persist across deploys.
+
+**Upgrading an older deployment:** follow [Upgrading from a version before ENCRYPTION_SECRET or multi-bank connections](README.md#upgrading-from-a-version-before-encryption_secret-or-multi-bank-connections) in the README. Ask the user before setting secrets or running the migration with `--apply`.
 
 ### Deploy Button Updates
 
-If the user deployed via the "Deploy to Cloudflare" button, the repository was forked to their GitHub account and connected to Cloudflare Workers Builds. Updates deploy automatically when pushed to `main`.
+If the user deployed via the "Deploy to Cloudflare" button, the repository was copied to their GitHub account and connected to Cloudflare Workers Builds. Updates deploy automatically when pushed to `main`. The copy does not need KV namespace IDs: wrangler reuses the namespaces already bound to the Worker.
 
 To pull upstream changes:
 
@@ -311,6 +298,7 @@ Bank consent typically lasts 90-180 days. Visit `/setup` to reconnect the bank a
 1. Verify AUTH_SECRET is set correctly: `npx wrangler secret list`
 2. Try setting AUTH_SECRET again: `npx wrangler secret put AUTH_SECRET`
 3. Ensure the MCP client supports OAuth 2.0 with dynamic client registration
+4. "Too many wrong passwords": ten wrong passwords from one IP lock it out for 15 minutes
 
 ### "No bank account connected"
 
@@ -344,7 +332,7 @@ This allows users to:
 - Label connections for easy identification in MCP tool responses
 - Renew or disconnect individual connections without affecting others
 
-Existing deployments with a single connection continue to work unchanged - the default connection is preserved with the label "Default".
+Deployments that connected a bank before multi-bank support need a one-time migration so that bank keeps showing up; see the README's upgrade section.
 
 ### Consent Expiry Features
 

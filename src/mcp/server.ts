@@ -2,29 +2,25 @@ import { signedAmount } from "../enable-banking/transactions";
 import { getTransactionsWithHistory, DEFAULT_MAX_TRANSACTIONS } from "../enable-banking/history";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import type { Env, BankSession, BankAccount, Transaction, ConnectionStatusInfo } from "../types";
-import { resolveScope, filterByScope, filterAccountsByScope, inScope, type TokenProps, type AccessScope } from "../scope";
+import type { Env, ConnectedSession, BankAccount, Transaction, ConnectionStatusInfo } from "../types";
+import { resolveScope, filterByScope, filterAccountsByScope, type TokenProps, type AccessScope } from "../scope";
 import {
   EnableBankingClient,
   isConsentExpired,
   getAllSessions,
   findConnectionByAccountId,
-  getConnectionIndex,
   buildConnectionInfo,
   buildExpiryWarning,
   getBaseUrl,
   isExpiredSessionError,
+  renewUrl,
   storeConnectRequest,
 } from "../enable-banking/client";
-
-function renewUrlFor(baseUrl: string, connectionId: string): string {
-  return `${baseUrl}/renew/${encodeURIComponent(connectionId)}`;
-}
 
 async function expiredMessage(env: Env, label: string, connectionId: string): Promise<string> {
   const baseUrl = await getBaseUrl(env.BANKING_KV);
   if (baseUrl) {
-    return `Connection '${label}' has expired. Renew here: ${renewUrlFor(baseUrl, connectionId)}`;
+    return `Connection '${label}' has expired. Renew here: ${renewUrl(baseUrl, connectionId)}`;
   }
   return `Bank consent for "${label}" has expired. Please reconnect by visiting the setup page at /setup`;
 }
@@ -32,24 +28,18 @@ async function expiredMessage(env: Env, label: string, connectionId: string): Pr
 async function getExpiryWarning(env: Env, scope: AccessScope): Promise<string | null> {
   const baseUrl = await getBaseUrl(env.BANKING_KV);
   if (!baseUrl) return null;
-  const sessions = filterByScope(scope, await getAllSessions(env.BANKING_KV));
-  const index = await getConnectionIndex(env.BANKING_KV);
-  return buildExpiryWarning(withLabels(sessions, index), baseUrl);
+  return buildExpiryWarning(filterByScope(scope, await getAllSessions(env.BANKING_KV)), baseUrl);
 }
 
-type LabelledSession = BankSession & { connectionId: string; label: string };
-
-/** All sessions visible to this token, with resolved labels. */
-async function scopedSessions(env: Env, scope: AccessScope): Promise<LabelledSession[]> {
-  const sessions = filterAccountsByScope(scope, filterByScope(scope, await getAllSessions(env.BANKING_KV)));
-  const index = await getConnectionIndex(env.BANKING_KV);
-  return withLabels(sessions, index) as LabelledSession[];
+/** All sessions visible to this token. */
+async function scopedSessions(env: Env, scope: AccessScope): Promise<ConnectedSession[]> {
+  return filterAccountsByScope(scope, filterByScope(scope, await getAllSessions(env.BANKING_KV)));
 }
 
 export interface AccountTarget {
   connectionId: string;
   label: string;
-  session: LabelledSession;
+  session: ConnectedSession;
   account: BankAccount;
 }
 
@@ -110,20 +100,6 @@ export async function resolveTargets(
   return { targets, skippedExpired };
 }
 
-function withLabels<T extends BankSession & { connectionId: string }>(
-  sessions: T[],
-  index: Awaited<ReturnType<typeof getConnectionIndex>>
-): T[] {
-  return sessions.map((s) => {
-    const info = index?.connections.find((c) => c.id === s.connectionId);
-    return {
-      ...s,
-      label: info?.label || s.label || (s.connectionId === "default" ? "Default" : s.aspspName),
-      psuType: info?.psuType || s.psuType,
-    };
-  });
-}
-
 export function appendExpiryWarning(result: string, warning: string | null): string {
   if (!warning) return result;
   return `${result}\n\n---\n${warning}`;
@@ -144,7 +120,7 @@ function categorizeTransaction(tx: Transaction): string {
   const creditor = (tx.creditor_name || "").toLowerCase();
 
   if (mcc) {
-    const mccNum = parseInt(mcc);
+    const mccNum = parseInt(mcc, 10);
     if (mccNum >= 5411 && mccNum <= 5499) return "Groceries";
     if (mccNum >= 5812 && mccNum <= 5814) return "Restaurants";
     if (mccNum >= 4011 && mccNum <= 4789) return "Transportation";
@@ -181,6 +157,26 @@ function textContent(text: string) {
   };
 }
 
+/** Wrap a bank-reading tool so an expired or invalid bank session returns a renew link instead of an error. */
+function withRenewMessage<Args extends { account_id?: string }>(
+  env: Env,
+  handler: (args: Args) => Promise<ReturnType<typeof textContent>>
+) {
+  return async (args: Args) => {
+    try {
+      return await handler(args);
+    } catch (error) {
+      if (!isExpiredSessionError(error)) throw error;
+      const found = args.account_id ? await findConnectionByAccountId(env.BANKING_KV, args.account_id) : null;
+      return textContent(
+        found
+          ? await expiredMessage(env, found.label, found.connectionId)
+          : "A bank consent has expired or is no longer valid. Use connection_status to see which connection to renew."
+      );
+    }
+  };
+}
+
 const filterSchema = {
   group: z
     .string()
@@ -204,8 +200,8 @@ function withSkipped<T extends object>(body: T, skippedExpired: string[]): T {
 }
 
 /**
- * @param props OAuth token props. Absent (AUTH_SECRET bearer) or without
- * scopeGroups means the token can see all connections.
+ * @param props OAuth token props. Absent or without scopeGroups means the
+ * token can see all connections.
  */
 export function createBankingMcpServer(env: Env, props?: TokenProps | null, grantId?: string) {
   const server = new McpServer({
@@ -214,25 +210,6 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
   });
 
   const getScope = () => resolveScope(env.BANKING_KV, props, grantId);
-
-  // Map bank "expired/invalid session" API errors to a clear renew message.
-  const originalRegisterTool = server.registerTool.bind(server) as (...args: any[]) => any;
-  (server as any).registerTool = (name: string, config: unknown, handler: (args: any, extra: any) => any) =>
-    originalRegisterTool(name, config, async (args: any, extra: any) => {
-      try {
-        return await handler(args, extra);
-      } catch (error) {
-        if (!isExpiredSessionError(error)) throw error;
-        const accountId = args?.account_id as string | undefined;
-        const found = accountId ? await findConnectionByAccountId(env.BANKING_KV, accountId) : null;
-        const connectionId = found?.connectionId || "default";
-        const index = await getConnectionIndex(env.BANKING_KV);
-        const info = index?.connections.find((c) => c.id === connectionId);
-        const label =
-          info?.label || found?.session.label || (connectionId === "default" ? "Default" : connectionId);
-        return textContent(await expiredMessage(env, label, connectionId));
-      }
-    });
 
   const ok = async (text: string, scope: AccessScope) =>
     textContent(appendExpiryWarning(text, await getExpiryWarning(env, scope)));
@@ -324,7 +301,7 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
           connectionId: session.connectionId,
           bank: session.aspspName,
           country: session.aspspCountry,
-          psuType: session.psuType || "personal",
+          psuType: session.psuType,
           consentValidUntil: session.consentValidUntil,
           consentExpired: isConsentExpired(session),
           accounts: session.accounts.map((acc) => ({
@@ -376,7 +353,7 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
         "Get current balances (e.g. booked, available). Give account_id for one account, or omit it to get balances for all accounts, optionally limited to one connection group.",
       inputSchema: { account_id: accountIdSchema, ...filterSchema },
     },
-    async ({ account_id, group }) => {
+    withRenewMessage(env, async ({ account_id, group }) => {
       const scope = await getScope();
       const { targets, error, skippedExpired } = await resolveTargets(env, scope, { account_id, group });
       if (error) return textContent(error);
@@ -402,7 +379,7 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
         ? { group: results[0].group, account: results[0].account, balances: results[0].balances }
         : withSkipped({ accounts: results }, skippedExpired);
       return await ok(JSON.stringify(body, null, 2), scope);
-    }
+    })
   );
 
   server.registerTool(
@@ -437,7 +414,7 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
           .describe("Raw bank pagination key from a previous response (requires account_id; fetches that single page only). Rarely needed: ranges are paged automatically."),
       },
     },
-    async ({ account_id, group, date_from, date_to, max_transactions, continuation_key }) => {
+    withRenewMessage(env, async ({ account_id, group, date_from, date_to, max_transactions, continuation_key }) => {
       if (continuation_key && !account_id) {
         return textContent("continuation_key requires account_id.");
       }
@@ -506,7 +483,7 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
           }
         : withSkipped({ dateRange: { from: fromDate, to: toDate }, accounts: results }, skippedExpired);
       return await ok(JSON.stringify(body, null, 2), scope);
-    }
+    })
   );
 
   server.registerTool(
@@ -533,7 +510,7 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
           .describe("Maximum number of results to return (default 50)"),
       },
     },
-    async ({ account_id, group, query, date_from, date_to, limit }) => {
+    withRenewMessage(env, async ({ account_id, group, query, date_from, date_to, limit }) => {
       const scope = await getScope();
       const { targets, error, skippedExpired } = await resolveTargets(env, scope, { account_id, group });
       if (error) return textContent(error);
@@ -551,7 +528,6 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
       for (const t of targets) {
         if (matches.length >= maxResults) break;
         const r = await getTransactionsWithHistory(env.BANKING_KV, client, t.account.accountId, fromDate, toDate, 5000);
-        {
           for (const tx of r.booked) {
             const counterparty = tx.creditor_name || tx.debtor_name || "";
             const description = (tx.remittance_information || []).join(" ");
@@ -570,7 +546,6 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
               if (matches.length >= maxResults) break;
             }
           }
-        }
       }
 
       const body = withSkipped(
@@ -584,7 +559,7 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
         skippedExpired
       );
       return await ok(JSON.stringify(body, null, 2), scope);
-    }
+    })
   );
 
   server.registerTool(
@@ -603,7 +578,7 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
           ),
       },
     },
-    async ({ account_id, group, month }) => {
+    withRenewMessage(env, async ({ account_id, group, month }) => {
       const scope = await getScope();
       const { targets, error, skippedExpired } = await resolveTargets(env, scope, { account_id, group });
       if (error) return textContent(error);
@@ -671,7 +646,7 @@ export function createBankingMcpServer(env: Env, props?: TokenProps | null, gran
         skippedExpired
       );
       return await ok(JSON.stringify(body, null, 2), scope);
-    }
+    })
   );
 
   server.registerTool(
